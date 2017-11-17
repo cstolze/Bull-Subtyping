@@ -1,15 +1,21 @@
-
+Require Logic.Decidable.
+Require Arith.Wf_nat.
+Require Arith_base.
+Require NArith.
+Require NZAddOrder.
 Require Import Coq.Structures.Equalities.
+
 Module Type SetTyp <: Typ.
   Parameter t : Set.
 End SetTyp.
-Module Type VariableAlphabet <: UsualDecidableType := 
+
+Module Type VariableAlphabet <: UsualDecidableType :=
   SetTyp <+ HasUsualEq <+ UsualIsEq <+ HasEqDec.
 
 Require Import Coq.Structures.Orders.
-Module Type OrderedVariableAlphabet <: UsualOrderedType :=
-  VariableAlphabet <+ HasLt <+ IsStrOrder <+ HasCompare.  
 
+Module Type OrderedVariableAlphabet <: UsualOrderedType :=
+  VariableAlphabet <+ HasLt <+ IsStrOrder <+ HasCompare.
 
 Module Types (VAlpha : VariableAlphabet).
   Definition 𝕍 := VAlpha.t.
@@ -40,8 +46,8 @@ Module Types (VAlpha : VariableAlphabet).
   Module SubtypeRelation.
     Reserved Infix "≤" (at level 89).
     Reserved Infix "~=" (at level 89).
-    
-    Require Import Coq.Relations.Relation_Operators.
+
+    Import Coq.Relations.Relation_Operators.
     Local Reserved Notation "σ ≤[ R ] τ" (at level 89).
 
     Inductive SubtypeRules {R : IntersectionType -> IntersectionType -> Prop}: IntersectionType -> IntersectionType -> Prop :=
@@ -79,12 +85,12 @@ Module Types (VAlpha : VariableAlphabet).
         match p with
         | ST _ _ p' => p'
         end.
-    
+
     Coercion unST: Subtypes >-> SubtypeRules_Closure.
-    
+
     Section Subtypes_ind.
       Variable P : IntersectionType -> IntersectionType -> Prop.
-      Hypothesis InterMeetLeft_case: 
+      Hypothesis InterMeetLeft_case:
         forall σ τ : IntersectionType, P (σ ∩ τ) σ.
       Hypothesis InterMeetRight_case:
         forall σ τ : IntersectionType, P (σ ∩ τ) τ.
@@ -115,7 +121,7 @@ Module Types (VAlpha : VariableAlphabet).
       Fixpoint Subtypes_ind {σ τ : IntersectionType} (p : σ ≤ τ) {struct p}: P σ τ :=
         match p in σ ≤ τ return P σ τ with
         | ST σ τ p' =>
-          ((fix subtypes_closure_ind (σ τ : IntersectionType) (p : σ ≤* τ) {struct p}: P σ τ := 
+          ((fix subtypes_closure_ind (σ τ : IntersectionType) (p : σ ≤* τ) {struct p}: P σ τ :=
             match p in (clos_refl_trans _ _ _ τ)return P σ τ with
             | rt_step _ _ _ τ p' =>
                 ((fix subtypes_rules_ind (σ τ : IntersectionType) (p : σ ≤[Subtypes] τ) {struct p}: P σ τ :=
@@ -137,47 +143,47 @@ Module Types (VAlpha : VariableAlphabet).
                       OmegaArrow_case
                   end) σ τ p')
             | rt_refl _ _ _ => Refl_case σ
-            | rt_trans _ _ _ τ ρ p1 p2 => 
+            | rt_trans _ _ _ τ ρ p1 p2 =>
                 Trans_case σ τ (ST σ τ p1) (subtypes_closure_ind σ τ p1)
                            ρ (ST τ ρ p2) (subtypes_closure_ind τ ρ p2)
             end) σ τ p')
         end.
     End Subtypes_ind.
-    
+
     Section Subtypes_ind_left.
       Variable σ : IntersectionType.
       Variable P : IntersectionType -> Prop.
       Hypothesis Start : P σ.
       Hypothesis Step : forall τ ρ, σ ≤ τ -> P τ -> τ ≤[Subtypes] ρ -> P ρ.
 
-      Require Import Relations.Operators_Properties.
-      
+      Import Relations.Operators_Properties.
+
       Definition Subtypes_ind_left: forall τ, σ ≤ τ -> P τ :=
         let LiftStep : forall τ ρ, σ ≤* τ -> P τ -> τ ≤[Subtypes] ρ -> P ρ :=
           fun τ ρ => fun p1 r p2 => Step τ ρ (ST _ _ p1) r p2 in
         fun τ p =>
           clos_refl_trans_ind_left _ _ σ P Start LiftStep τ (unST _ _ p).
+
     End Subtypes_ind_left.
-    
+
     Section Subtypes_ind_right.
       Variable ρ : IntersectionType.
       Variable P : IntersectionType -> Prop.
       Hypothesis Start : P ρ.
       Hypothesis Step : forall σ τ, σ ≤[Subtypes] τ -> P τ -> τ ≤ ρ -> P σ.
 
-      Require Import Relations.Operators_Properties.
+      Import Relations.Operators_Properties.
       Definition Subtypes_ind_right: forall σ, σ ≤ ρ -> P σ :=
         let LiftStep : forall σ τ, σ ≤[Subtypes] τ -> P τ -> τ ≤* ρ -> P σ :=
           fun σ τ => fun p1 r p2 => Step σ τ p1 r (ST _ _ p2) in
         fun σ p =>
           clos_refl_trans_ind_right _ _ P ρ Start LiftStep σ (unST _ _ p).
     End Subtypes_ind_right.
-    
 
     Definition liftSubtypeProof {σ τ} (p : σ ≤[Subtypes] τ): σ ≤ τ :=
       ST _ _ (rt_step _ _ _ _ p).
 
-    Definition InterMeetLeft {σ τ}: σ ∩ τ ≤ σ := 
+    Definition InterMeetLeft {σ τ}: σ ∩ τ ≤ σ :=
       liftSubtypeProof (R_InterMeetLeft σ τ).
     Definition InterMeetRight {σ τ}: σ ∩ τ ≤ τ :=
       liftSubtypeProof (R_InterMeetRight σ τ).
@@ -193,7 +199,6 @@ Module Types (VAlpha : VariableAlphabet).
       liftSubtypeProof (R_OmegaTop σ).
     Definition OmegaArrow: ω ≤ ω → ω :=
       liftSubtypeProof (R_OmegaArrow).
-    
 
     Inductive EqualTypes : IntersectionType -> IntersectionType -> Prop :=
     | InducedEq {σ τ}: σ ≤ τ -> τ ≤ σ -> σ ~= τ
@@ -206,30 +211,31 @@ Module Types (VAlpha : VariableAlphabet).
         | InducedEq l _ => l
         end.
     Definition EqualTypesAreSubtypes_right: forall σ τ, σ ~= τ -> τ ≤ σ :=
-      fun _ _ eqtys => 
+      fun _ _ eqtys =>
         match eqtys with
         | InducedEq _ r => r
         end.
     Coercion EqualTypesAreSubtypes_left : EqualTypes >-> Subtypes.
     (*Coercion EqualTypesAreSubtypes_right : EqualTypes >-> Subtypes.*)
-     
+
     Create HintDb SubtypeHints.
     Hint Resolve InterMeetLeft InterMeetRight InterIdem InterDistrib OmegaTop OmegaArrow InducedEq: SubtypeHints.
 
-    Require Import Coq.Classes.RelationClasses.
-    Require Import Coq.Relations.Operators_Properties.
-    Require Import Coq.Relations.Relation_Definitions.
+    Import Coq.Classes.RelationClasses.
+    Import Coq.Relations.Operators_Properties.
+    Import Coq.Relations.Relation_Definitions.
     Instance Subtypes_Reflexive : Reflexive (≤) :=
       fun σ => ST _ _ ((clos_rt_is_preorder _ _).(preord_refl _ _) σ).
     Hint Resolve Subtypes_Reflexive: SubtypeHints.
-    Instance Subtypes_Transitive : Transitive (≤) := 
+    Instance Subtypes_Transitive : Transitive (≤) :=
       fun σ τ ρ p1 p2 => ST _ _ ((clos_rt_is_preorder _ _).(preord_trans _ _) σ τ ρ (unST _ _ p1) (unST _ _ p2)).
     Instance Subtypes_Preorder : PreOrder (≤) :=
-      {| PreOrder_Reflexive := Subtypes_Reflexive; 
+      {| PreOrder_Reflexive := Subtypes_Reflexive;
          PreOrder_Transitive := Subtypes_Transitive |}.
 
     Instance EqualTypes_Reflexive: Reflexive (~=) :=
       fun σ => InducedEq (reflexivity σ) (reflexivity σ).
+
     Instance EqualTypes_Transitive: Transitive (~=).
     Proof.
       unfold Transitive.
@@ -264,7 +270,8 @@ Module Types (VAlpha : VariableAlphabet).
         apply InducedEq; assumption.
     Defined.
 
-    Require Import Classes.Morphisms.
+    Import Classes.Morphisms.
+
     Class Monoid {A} (equiv : relation A) `{Equivalence A equiv} (f : A -> A -> A) (unit : A) :=
       { associativity : forall x y z, equiv (f (f x y) z) (f x (f y z));
         identity_left : forall x, equiv x (f unit x);
@@ -312,7 +319,7 @@ Module Types (VAlpha : VariableAlphabet).
       - exact InterMeetLeft.
     Defined.
     Hint Resolve InterOmega_Right : SubtypeHints.
-    
+
     Instance Inter_Proper_ST : Proper ((≤) ==> (≤) ==> (≤)) (∩).
     Proof.
       compute.
@@ -327,7 +334,7 @@ Module Types (VAlpha : VariableAlphabet).
       intros * * p2; inversion p2.
       split; apply Inter_Proper_ST; assumption.
     Defined.
-   
+
     Instance Arr_Proper_ST : Proper (transp _ (≤) ==> (≤) ==> (≤)) (→).
     Proof.
       compute.
@@ -335,7 +342,7 @@ Module Types (VAlpha : VariableAlphabet).
       intros * * p2.
       apply CoContra; assumption.
     Defined.
-    
+
     Instance Arr_Proper_EQ : Proper ((~=) ==> (~=) ==> (~=)) (→).
     Proof.
       compute.
@@ -349,7 +356,7 @@ Module Types (VAlpha : VariableAlphabet).
          identity_left := @InterOmega_Left;
          identity_right := @InterOmega_Right;
          f_proper := Inter_Proper_EQ |}.
-    
+
     Class AbelianMonoid {A} (equiv : relation A) `{Equivalence A equiv} (f : A -> A -> A) (unit : A) :=
       { monoid :> Monoid equiv f unit;
         commutativity : forall x y, equiv (f x y) (f y x) }.
@@ -372,7 +379,7 @@ Module Types (VAlpha : VariableAlphabet).
     Instance Inter_AbelianMonoid : AbelianMonoid (~=) (∩) ω :=
       {| monoid := Inter_Monoid;
          commutativity := InterComm_EQ |}.
-    
+
     Fact Inter_both : forall {σ τ ρ}, σ ≤ τ -> σ ≤ ρ -> σ ≤ τ ∩ ρ.
     Proof.
       intros.
@@ -394,7 +401,7 @@ Module Types (VAlpha : VariableAlphabet).
     Defined.
     Hint Resolve Arrow_Tgt_Omega_eq : SubtypeHints.
 
-    Require Import Setoids.Setoid.
+    Import Setoids.Setoid.
     Fact Omega_Inter_Omega_eq {σ ρ : IntersectionType}:
        ω ~= σ -> ω ~= ρ -> ω ~= σ ∩ ρ.
     Proof.
@@ -405,18 +412,17 @@ Module Types (VAlpha : VariableAlphabet).
     Defined.
     Hint Resolve Omega_Inter_Omega_eq : SubtypeHints.
 
-
     Section BetaLemmas.
       Reserved Notation "↑ω σ" (at level 89).
       Inductive Ω: IntersectionType -> Prop :=
         | OF_Omega : Ω ω
         | OF_Arrow : forall σ ρ, Ω ρ -> Ω (σ → ρ)
         | OF_Inter : forall σ ρ, Ω σ -> Ω ρ -> Ω (σ ∩ ρ)
-      where "↑ω σ" := (Ω σ).   
-            
+      where "↑ω σ" := (Ω σ).
+
       Fact Ω_principal: forall σ, ↑ω σ -> ω ~= σ.
       Proof.
-        intros σ ωσ. 
+        intros σ ωσ.
         induction ωσ; auto with SubtypeHints.
       Defined.
 
@@ -445,7 +451,7 @@ Module Types (VAlpha : VariableAlphabet).
         intros σ ωLEσ.
         exact (Ω_upperset _ _ ωLEσ OF_Omega).
       Defined.
-      
+
       Fact Ω_directed:
         forall σ τ, ↑ω σ -> ↑ω τ -> (↑ω ω) /\ (ω ≤ σ) /\ (ω ≤ τ).
       Proof.
@@ -475,7 +481,7 @@ Module Types (VAlpha : VariableAlphabet).
           exact (Ω_principal _ ωτ).
         - exact Arrow_Tgt_Omega_eq.
       Defined.
-     
+
       Reserved Notation "↓α[ α ] σ" (at level 89).
       Inductive VariableIdeal (α : 𝕍): IntersectionType -> Prop :=
         | VI_Var : ↓α[α] (Var α)
@@ -496,7 +502,7 @@ Module Types (VAlpha : VariableAlphabet).
           + exact InterMeetRight.
           + assumption.
       Defined.
-      
+
       Fact VariableIdeal_lowerset:
         forall σ τ, σ ≤ τ -> forall α, ↓α[α] τ -> ↓α[α] σ.
       Proof.
@@ -520,14 +526,14 @@ Module Types (VAlpha : VariableAlphabet).
           apply (IHσLEτ2).
           assumption.
       Defined.
-      
+
       Corollary VariableIdeal_principalElement:
         forall σ α, σ ≤ (Var α) -> ↓α[α] σ.
       Proof.
         intros σ α σLEα.
         exact (VariableIdeal_lowerset _ _ σLEα _ (VI_Var α)).
       Defined.
-      
+
       Fact VariableIdeal_directed:
         forall α σ τ, ↓α[α] σ -> ↓α[α] τ -> (↓α[α] (Var α)) /\ (σ ≤ (Var α)) /\ (τ ≤ (Var α)).
       Proof.
@@ -544,7 +550,7 @@ Module Types (VAlpha : VariableAlphabet).
         intros σ τ α στLEα.
         inversion στLEα as [ | * * σLEα | * * τLEα ]; auto.
       Defined.
-      
+
       Reserved Notation "↓[ σ ] → [ τ ] ρ" (at level 89).
       Inductive ArrowIdeal (σ τ : IntersectionType): IntersectionType -> Prop :=
         | AI_Omega : forall ρ, ↑ω τ -> ↓[σ] → [τ] ρ
@@ -555,7 +561,7 @@ Module Types (VAlpha : VariableAlphabet).
             ↓[σ] → [ρ1] σ' -> ↓[σ] → [ρ2] τ' -> ρ1 ∩ ρ2 ≤ τ -> ↓[σ] → [τ] σ' ∩ τ'
       where "↓[ σ ] → [ τ ] ρ" := (ArrowIdeal σ τ ρ).
 
-      Hint Resolve AI_Omega AI_Arrow AI_InterLeft AI_InterRight. 
+      Hint Resolve AI_Omega AI_Arrow AI_InterLeft AI_InterRight.
 
       Fact ArrowIdeal_principal:
         forall σ τ ρ, ↓[σ] → [τ] ρ -> ρ ≤ σ → τ.
@@ -590,7 +596,7 @@ Module Types (VAlpha : VariableAlphabet).
           + assumption.
           + transitivity τ; assumption.
         - apply AI_InterLeft; auto.
-        - apply AI_InterRight; auto. 
+        - apply AI_InterRight; auto.
         - eapply AI_Inter; eauto.
           etransitivity; eassumption.
       Defined.
@@ -606,7 +612,7 @@ Module Types (VAlpha : VariableAlphabet).
       Defined.
 
       Fact ArrowIdeal_merge:
-        forall σ τ1 τ2 ρ1 ρ2, 
+        forall σ τ1 τ2 ρ1 ρ2,
         forall τ τ',
         τ1 ∩ τ2 ≤ τ ∩ τ' ->
         ↓[σ] → [τ1] ρ1 -> ↓[σ] → [τ2] ρ2 ->
@@ -660,7 +666,7 @@ Module Types (VAlpha : VariableAlphabet).
             | apply AI_Arrow; auto with SubtypeHints
             | apply AI_InterLeft; auto with SubtypeHints
             | apply AI_InterRight; auto with SubtypeHints ];
-          first [ eapply AI_Inter; 
+          first [ eapply AI_Inter;
             [ solve [ eauto with SubtypeHints ] |
               solve [ eauto with SubtypeHints ] |
               solve [ eauto with SubtypeHints ] ] || idtac ] .
@@ -724,7 +730,7 @@ Module Types (VAlpha : VariableAlphabet).
         forall ρ1 ρ2, ρ1 ≤ ρ2 -> forall σ τ, ↓[σ] → [τ] ρ2 -> ↓[σ] → [τ] ρ1.
       Proof.
         intros ρ1 ρ2 ρ1LEρ2.
-        induction ρ1LEρ2; 
+        induction ρ1LEρ2;
           try solve [ auto ];
           intros σ'' τ'' H;
           inversion H;
@@ -745,15 +751,15 @@ Module Types (VAlpha : VariableAlphabet).
         - set (ωτ := Ω_upperset _ _ H3 OF_Omega).
           auto.
       Defined.
-      
+
       Corollary ArrowIdeal_principalElement:
         forall ρ σ τ, ρ ≤ σ → τ -> ↓[σ] → [τ] ρ.
       Proof.
         intros ρ σ τ ρLEστ.
-        exact (ArrowIdeal_lowerset _ _ ρLEστ _ _ 
+        exact (ArrowIdeal_lowerset _ _ ρLEστ _ _
           (AI_Arrow _ _ _ _ (reflexivity σ) (reflexivity τ))).
       Defined.
-      
+
       Fact ArrowIdeal_directed:
         forall ρ1 ρ2 σ τ, ↓[σ] → [τ] ρ1 -> ↓[σ] → [τ] ρ2 ->
         (↓[σ] → [τ] σ → τ) /\ (ρ1 ≤ σ → τ) /\ (ρ2 ≤ σ → τ).
@@ -797,7 +803,7 @@ Module Types (VAlpha : VariableAlphabet).
           + left; auto.
           + right; auto.
       Defined.
-      
+
       Reserved Notation "↓[ σ ] τ" (at level 89).
       Fixpoint Ideal σ: IntersectionType -> Prop :=
         match σ with
@@ -814,10 +820,10 @@ Module Types (VAlpha : VariableAlphabet).
           | _ => fun τ => ↓[τ] σ
         end.
       Notation "↑[ σ ] τ" := (Filter σ τ) (at level 89).
-      
+
       Notation "↑α[ n ] σ " := (↑[Var n] σ) (at level 89).
       Notation "↑[ σ ] → [ τ ] ρ" := (↑[σ → τ] ρ) (at level 89).
-      
+
       Lemma Filter_Ideal:
         forall σ τ, ↑[σ] τ -> ↓[τ] σ.
       Proof.
@@ -867,7 +873,7 @@ Module Types (VAlpha : VariableAlphabet).
           apply (transitivity InterIdem).
           apply SubtyDistrib; auto.
         - intros; exact OmegaTop.
-      Defined.      
+      Defined.
 
       Lemma Filter_principal:
         forall σ τ, ↑[σ] τ -> σ ≤ τ.
@@ -902,7 +908,7 @@ Module Types (VAlpha : VariableAlphabet).
           + apply (Ideal_lowerset _ σ2); auto with SubtypeHints.
         - exact (OF_Omega).
       Defined.
-      
+
       Instance Ideal_Reflexive : Reflexive Ideal := Ideal_refl.
 
       Lemma Filter_upperset:
@@ -917,7 +923,7 @@ Module Types (VAlpha : VariableAlphabet).
           + assumption.
           + reflexivity.
       Defined.
- 
+
       Lemma Filter_refl:
         forall σ, ↑[σ] σ.
       Proof.
@@ -939,7 +945,7 @@ Module Types (VAlpha : VariableAlphabet).
         - reflexivity.
       Defined.
 
-      Instance Ideal_Transitive : Transitive Ideal := Ideal_transitive.  
+      Instance Ideal_Transitive : Transitive Ideal := Ideal_transitive.
 
       Lemma Filter_transitive:
         forall σ τ ρ, ↑[σ] τ -> ↑[τ] ρ -> ↑[σ] ρ.
@@ -1000,11 +1006,11 @@ Module Types (VAlpha : VariableAlphabet).
         destruct (Ideal_directed τ σ σ (Filter_Ideal _ _ στ) (Filter_Ideal _ _ στ))
           as [ _ [ στ' _ ] ].
         destruct (Ideal_directed ρ σ σ (Filter_Ideal _ _ σρ) (Filter_Ideal _ _ σρ))
-          as [ _ [ σρ' _ ] ].        
+          as [ _ [ σρ' _ ] ].
         split; [ | split ]; auto using reflexivity.
       Qed.
-        
-      Require Import Logic.Decidable.
+
+      Import Logic.Decidable.
       Fact Ω_decidable: forall τ, { Ω τ } + { ~(Ω τ) }.
       Proof.
         intro τ.
@@ -1041,7 +1047,7 @@ Module Types (VAlpha : VariableAlphabet).
         induction τ as [ β | σ IHσ τ IHτ | ρ1 IHρ1 ρ2 IHρ2 | ];
           try solve [ right; intro τLEσ; inversion τLEσ ].
         - set (varEq := 𝕍_eq_dec α β).
-          inversion varEq as [ equal | notEqual ]. 
+          inversion varEq as [ equal | notEqual ].
             { rewrite equal. left. fold (Ideal (Var β) (Var β)). reflexivity. }
             { right. unfold not. intro αLEβ. inversion αLEβ. contradiction. }
         - inversion IHρ1; inversion IHρ2;
@@ -1066,7 +1072,7 @@ Module Types (VAlpha : VariableAlphabet).
                   | right; unfold not; intros αLEρ1ρ2; inversion αLEρ1ρ2; contradiction ].
         - simpl. exact (ΩIdeal_decidable (Var α)).
       Defined.
-      
+
       Fixpoint ty_size σ : nat :=
         match σ with
           | Var _ => 1
@@ -1078,16 +1084,16 @@ Module Types (VAlpha : VariableAlphabet).
       Definition ty_pair_size στ : nat :=
         ty_size (fst στ) + ty_size (snd στ).
 
-      Require Import Arith.Wf_nat.
-      Fact ty_pair_size_wf: 
+      Import Arith.Wf_nat.
+      Fact ty_pair_size_wf:
         well_founded (fun στ σ'τ' => ty_pair_size στ < ty_pair_size σ'τ').
       Proof.
         apply well_founded_ltof.
       Defined.
-       
-      Require Import Arith_base.
-      Require Import NArith.
-      Require Import NZAddOrder.
+
+      Import Arith_base.
+      Import NArith.
+      Import NZAddOrder.
       Fact ty_size_positive:
         forall σ, ty_size σ >= 1.
       Proof.
@@ -1190,8 +1196,7 @@ Module Types (VAlpha : VariableAlphabet).
         rewrite plus_comm.
         reflexivity.
       Defined.
-     
-      
+
       Fact ty_pair_size_dec_tgt:
         forall σ τ σ' τ',
         ty_pair_size (τ, τ') < ty_pair_size ((σ → τ), (σ' → τ')).
@@ -1203,7 +1208,7 @@ Module Types (VAlpha : VariableAlphabet).
         - apply (transitivity (le_n_Sn _)).
           apply ty_size_drop_src.
       Defined.
-      
+
       Fact ty_pair_size_dec_src:
         forall σ τ σ' τ',
         ty_pair_size (σ', σ) < ty_pair_size ((σ → τ), (σ' → τ')).
@@ -1216,7 +1221,6 @@ Module Types (VAlpha : VariableAlphabet).
         - apply (transitivity (le_n_Sn _)).
           apply ty_size_drop_tgt.
       Defined.
-      
 
       Fact Pick_Ideal σ ρ (decσ : forall σ', ty_pair_size (σ, σ') < ty_pair_size (σ, ρ) -> { ↑[σ] σ' } + { ~(↑[σ] σ') } ):
         { τ : IntersectionType | (↓[σ] → [τ] ρ) /\ (forall τ', ↓[σ] → [τ'] ρ -> τ ≤ τ') /\ ty_size τ <= ty_size ρ }.
@@ -1289,7 +1293,7 @@ Module Types (VAlpha : VariableAlphabet).
           split; [|split].
           + apply (AI_Inter _ _ _ _ τ1 τ2).
             * assumption.
-            * assumption. 
+            * assumption.
             * reflexivity.
           + intros τ' ρ1ρ2LEστ'.
             inversion ρ1ρ2LEστ'.
@@ -1313,7 +1317,7 @@ Module Types (VAlpha : VariableAlphabet).
           + simpl.
             apply plus_le_compat.
             * exact (proj2 τ1_min).
-            * exact (proj2 τ2_min).            
+            * exact (proj2 τ2_min).
         - exists ω.
           split; [|split].
           + apply AI_Omega.
@@ -1325,7 +1329,7 @@ Module Types (VAlpha : VariableAlphabet).
           + reflexivity.
       Defined.
 
-      Definition Ideal_decidable': 
+      Definition Ideal_decidable':
         forall στ
           (Ideal_decidable'':
             forall σ'τ',
@@ -1333,7 +1337,7 @@ Module Types (VAlpha : VariableAlphabet).
             { ↓[fst σ'τ'] (snd σ'τ') } + { ~(↓[fst σ'τ'] (snd σ'τ')) }),
           { ↓[fst στ] (snd στ) } + { ~(↓[fst στ] (snd στ)) }.
       Proof.
-        intros [ σ τ Ideal_decidable''].
+        intros [ σ τ ] Ideal_decidable''.
         case σ as [ | σ' τ' | ρ1 ρ2 | ] eqn:σeq.
         - apply VariableIdeal_decidable.
         - case τ as [ | σ'' τ'' | ρ1 ρ2 | ].
@@ -1398,7 +1402,7 @@ Module Types (VAlpha : VariableAlphabet).
                 ty_pair_size (σ', τ) < ty_pair_size (σ', ρ1 ∩ ρ2) ->
                 { ↑[σ'] τ } + { ~(↑[σ'] τ) }).
               { intros τ ltP.
-                case σ' as [ | σ'' τ'' | ρ1' ρ2' | ]; 
+                case σ' as [ | σ'' τ'' | ρ1' ρ2' | ];
                   intros;
                   try solve [ apply Ω_decidable
                             | apply VariableFilter_decidable ].
@@ -1457,7 +1461,7 @@ Module Types (VAlpha : VariableAlphabet).
           + apply ty_pair_size_dec_fst.
             split.
             * apply ty_size_drop_left.
-            * reflexivity. 
+            * reflexivity.
           + simpl.
             case (Ideal_decidable'' (ρ2, τ)).
             { apply ty_pair_size_dec_fst.
@@ -1513,8 +1517,6 @@ Module Types (VAlpha : VariableAlphabet).
           apply Ideal_principalElement.
           assumption.
       Defined.
-
-      
 
       Inductive tgt : IntersectionType -> IntersectionType -> Prop :=
         | tgt_Id : forall τ, tgt τ τ
@@ -1588,14 +1590,13 @@ Module Types (VAlpha : VariableAlphabet).
                       [ apply σNeqτ
                       | apply ninTgtρ1
                       | apply ninTgtρ2 ];
-                      assumption. } 
+                      assumption. }
           + right.
             intro inTgt.
             inversion inTgt.
             apply σNeqτ.
             assumption.
       Defined.
-      
 
       Inductive Path : IntersectionType -> Prop :=
         | Path_Var : forall α, Path (Var α)
@@ -1604,7 +1605,7 @@ Module Types (VAlpha : VariableAlphabet).
       Inductive Organized : IntersectionType -> Prop :=
         | Organized_Path : forall τ, Path τ -> Organized τ
         | Organized_Inter : forall σ τ, Path σ -> Organized τ -> Organized (σ ∩ τ).
-      
+
       Inductive InOrganized: IntersectionType -> IntersectionType -> Prop :=
         | InOrg_HereEnd : forall σ, Path σ -> InOrganized σ σ
         | InOrg_Here : forall σ τ, Organized (σ ∩ τ) -> InOrganized (σ ∩ τ) σ
@@ -1613,7 +1614,7 @@ Module Types (VAlpha : VariableAlphabet).
       Fact tgt_shift: forall τ σ τ', tgt τ (σ → τ') -> tgt τ τ'.
       Proof.
         intros τ.
-        induction τ as [ ? | ? ? ? IH | ? IH1 ? IH2 | ]; 
+        induction τ as [ ? | ? ? ? IH | ? IH1 ? IH2 | ];
           intros σ τ tgtτστ';
           inversion tgtτστ'.
         - apply tgt_Arr.
@@ -1645,7 +1646,7 @@ Module Types (VAlpha : VariableAlphabet).
       Fact path_not_omega: forall τ, Path τ -> ~ Ω τ.
       Proof.
         intro τ.
-        induction τ as [ | σ' ? τ' IHτ' pτ' | ρ1 ? ρ2 | ]; 
+        induction τ as [ | σ' ? τ' IHτ' pτ' | ρ1 ? ρ2 | ];
           intros pτ; intro ωτ;
           inversion ωτ.
         - inversion pτ as [ | ? ? pτ' ].
@@ -1702,7 +1703,7 @@ Module Types (VAlpha : VariableAlphabet).
           inversion orgσ as [ σ' pathσ' | ].
           inversion pathσ'.
       Defined.
-          
+
       Fact tgt_organized:
         forall σ τ, Organized τ -> { τ' : _ | (Organized τ') /\ ((σ → τ) ~= τ') }.
       Proof.
@@ -1755,8 +1756,7 @@ Module Types (VAlpha : VariableAlphabet).
           inversion orgτ as [ τ' pathτ' | ]; inversion pathτ'.
       Qed.
 
-     
-      Definition organization_lemma: 
+      Definition organization_lemma:
         forall τ, (τ ~= ω) + ({ τ': _ | Organized τ' /\ (τ ~= τ') }).
       Proof.
         intros τ.
@@ -1799,7 +1799,7 @@ Module Types (VAlpha : VariableAlphabet).
             split.
             * assumption.
             * rewrite ωρ2.
-              rewrite ρ1Eqτ'1. 
+              rewrite ρ1Eqτ'1.
               symmetry.
               rewrite identity_right at 1.
               reflexivity.
@@ -1826,13 +1826,13 @@ Module Types (VAlpha : VariableAlphabet).
       Defined.
 
       Fact Path_Ideal_prime : forall τ,
-        (τ ~= ω) \/ Path τ -> 
-        forall ρ1 ρ2, 
-        ↓[τ] (ρ1 ∩ ρ2) -> 
+        (τ ~= ω) \/ Path τ ->
+        forall ρ1 ρ2,
+        ↓[τ] (ρ1 ∩ ρ2) ->
         (ρ1 ≤ τ) \/ (ρ2 ≤ τ).
       Proof.
         intro τ.
-        induction τ as [ | σ IHσ τ' IHτ' | | ]; 
+        induction τ as [ | σ IHσ τ' IHτ' | | ];
           intros pτ ρ1 ρ2 ρ1ρ2LEτ;
           try solve [ inversion pτ ];
           simpl in ρ1ρ2LEτ.
@@ -1868,11 +1868,11 @@ Module Types (VAlpha : VariableAlphabet).
                 rewrite <- (CoContra (reflexivity σ) ρ3LEτ').
                 apply Ideal_principal.
                 assumption. }
-              { right.   
+              { right.
                 rewrite <- (CoContra (reflexivity σ) ρ4LEτ').
                 apply Ideal_principal.
                 assumption. }
-        - inversion pτ as [ ωτ | pτ' ]. 
+        - inversion pτ as [ ωτ | pτ' ].
           + left.
             rewrite ωτ.
             exact OmegaTop.
@@ -1897,7 +1897,7 @@ Module Types (VAlpha : VariableAlphabet).
           + intros ρ1 ρ2 ρ1ρ2LEτ.
             assert (ρ1ρ2LEστ : (σ → ρ1) ∩ (σ → ρ2) ≤ σ → τ).
             * transitivity (σ → ρ1 ∩ ρ2).
-              { apply InterDistrib. } 
+              { apply InterDistrib. }
               { apply CoContra.
                 - reflexivity.
                 - apply Ideal_principal.
@@ -2087,38 +2087,37 @@ Module Types (VAlpha : VariableAlphabet).
           inversion oσ as [ ? pω |].
           inversion pω.
       Defined.
-  
+
     End BetaLemmas.
 
-   
   End SubtypeRelation.
 End Types.
 
 Module CoqExample.
   Module NatVar <: VariableAlphabet.
     Definition t := nat.
-    Require Import Coq.Arith.Peano_dec.
+    Import Coq.Arith.Peano_dec.
     Definition eq_dec := eq_nat_dec.
     Include HasUsualEq.
     Include UsualIsEq.
   End NatVar.
   Module NatVarTypes := NatVar <+ Types.
   Import NatVarTypes.
-  
+
   Definition α := (Var 1).
   Definition β := (Var 2).
   Definition γ := (Var 3).
   Definition δ := (Var 4).
   Definition ε := (Var 5).
   Definition ζ := (Var 6).
-  
+
   Import NatVarTypes.SubtypeRelation.
 
   Example pick_ideal: IntersectionType.
   Proof.
     set (τ := (β → γ ∩ α) ∩ (δ → ε ∩ α)).
     eapply proj1_sig.
-    apply (Pick_Ideal δ τ (fun σ' p => Filter_decidable δ σ')). 
+    apply (Pick_Ideal δ τ (fun σ' p => Filter_decidable δ σ')).
   Defined.
 
   Example subtype_proof :=
@@ -2130,7 +2129,7 @@ Module CoqExample.
     decide_subtypes
       (((α → β) → δ) ∩ ((α → γ) → δ) ∩ (ε → ζ) ∩ (ε → α))
       (((α → β → ε) → δ) ∩ (ε → ζ ∩ α)).
-  
+
   (* Run this:  Eval compute in subtype_proof *)
 End CoqExample.
 

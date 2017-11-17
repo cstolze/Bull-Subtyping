@@ -7,7 +7,7 @@ all: coq haskell ocaml
 world: all
 
 .PHONY: coq
-coq: 
+coq:
 	$(MAKE) -C coq all
 
 coq/BCD.hs: coq
@@ -22,7 +22,7 @@ haskell: haskell/src/BCD.hs
 	$(MAKE) -C haskell all
 
 ocaml/src/extracted/BCD.ml: coq/BCD.ml coq/BCD.mli
-	cp coq/BCD.ml coq/BCD.mli ocaml/src/extracted/
+	test -d ocaml/src/extracted/ || mkdir -p ocaml/src/extracted/ && cp coq/BCD.ml coq/BCD.mli ocaml/src/extracted/
 
 ocaml/Makefile: ocaml/src/extracted/BCD.ml
 	cd ocaml && $(OASIS) setup -setup-update dynamic
@@ -32,14 +32,12 @@ ocaml: ocaml/Makefile
 	$(MAKE) -C ocaml all
 
 .PHONY: microbenchmark
-microbenchmark: haskell/dist/build/hsint/hsint ocaml/_build/src/benchmark/TestDriver.native 
+microbenchmark: haskell/dist/build/hsint/hsint ocaml/_build/src/benchmark/TestDriver.native
 	./ocaml/_build/src/benchmark/TestDriver.native
 	./haskell/dist/build/hsint/hsint
 
 .PHONY: clean
 clean:
-	$(MAKE) -C coq mrproper 
+	$(MAKE) -C coq mrproper
 	$(MAKE) -C haskell clean
 	$(MAKE) -C ocaml mrproper
-
-
