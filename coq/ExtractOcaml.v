@@ -1,5 +1,6 @@
 Require Import Filter.
 Require Import Coq.Structures.Equalities.
+Require Extraction.
 
 Module OcamlTy.
   Module MachineIntVar <: VariableAlphabet.

@@ -18,29 +18,29 @@ instance Show BCD.IntersectionType where
   showsPrec _ BCD.Omega = showString "ω"
   showsPrec _ (BCD.Var x) =
     let index = 1 + (x `div` 6) in
-    showString $ 
+    showString $
       (['α', 'β', 'γ', 'δ', 'ε', 'ζ'] !! (x `mod` 6)) :
       (if index > 1 then show index else "")
   showsPrec d (BCD.Arr src tgt) =
-    showParen (d > arr_prec) $ 
-      showsPrec (arr_prec + 1) src 
-      . showString " → " 
+    showParen (d > arr_prec) $
+      showsPrec (arr_prec + 1) src
+      . showString " → "
       . showsPrec (arr_prec + 1) tgt
     where arr_prec = 5
   showsPrec d (BCD.Inter l r) =
-    showParen (d > inter_prec) $ 
+    showParen (d > inter_prec) $
       showsPrec (inter_prec + 1) l
-      . showString " ∩ " 
+      . showString " ∩ "
       . showsPrec (inter_prec + 1) r
     where inter_prec = 6
 
 genType :: Int -> Gen BCD.IntersectionType
 genType n | n > 3 = do
-  nLeft <- abs <$> resize (n - 1) arbitrarySizedIntegral  
+  nLeft <- abs <$> resize (n - 1) arbitrarySizedIntegral
   oneof [ BCD.Arr <$> (genType nLeft) <*> (genType (n - 1 - nLeft))
         , BCD.Inter <$> (genType nLeft) <*> (genType (n - 1 - nLeft))
         ]
-genType _ = 
+genType _ =
   oneof [ pure BCD.Omega
         , BCD.Var . abs <$> arbitrarySizedIntegral
         ]
@@ -55,18 +55,18 @@ worstCase n =
   (worstCaseLeft n, worstCaseRight n)
   where
     worstCaseLeft n =
-      foldl (\ s n' -> 
+      foldl (\ s n' ->
         BCD.Inter s $ BCD.Arr
           (BCD.Var n')
           (BCD.Var n')) BCD.Omega [1 .. n]
     worstCaseRight n =
       foldl (\ s n' ->
         let tau = foldl (\ s' m ->
-                      if n' == m then s' 
+                      if n' == m then s'
                       else (BCD.Inter s' (BCD.Var m)))
                     BCD.Omega [1..n]
         in BCD.Inter s $ BCD.Arr tau tau) BCD.Omega [1..n]
-          
+
 
 instance Generic BCD.IntersectionType
 instance NFData BCD.IntersectionType where rnf x = seq x ()
@@ -93,7 +93,7 @@ measure (BCD.Var _) = 1
 measure (BCD.Arr l r) = 1 + measure l + measure r
 measure (BCD.Inter l r) = 1 + measure l + measure r
 
- 
+
 timeIt :: (NFData a, NFData b) => (a -> b) -> a -> IO (Double, b)
 timeIt action arg = do
   arg' <- evaluate $ force arg
@@ -112,16 +112,16 @@ main = do
   print t
   print (head r)
   print . (\ (l, r) -> max (measure l) (measure r) ) . head $ tys -}
-  defaultMain 
+  defaultMain
     [ env setupWorstCaseEnv $ \ tys ->
         bgroup "worst case subtyping" $
             (bench "dummy" $ whnf (+ 1) 1) :
             map (\ (n, tysn) -> bench ("type_size_" ++ show n) $ nf subtypes tysn) [last tys]
     {-env setupEnv $ \ ~tys ->
       bgroup "subtyping" $
-        (bench "dummy" $ whnf (+ 1) 1) :  
+        (bench "dummy" $ whnf (+ 1) 1) :
         map (\ (n, tysn) -> bench ("type_size_" ++ show n) $ nf (map subtypes) tysn) tys -}
     ]
   where
     subtypes = uncurry $ BCD.decide_subtypes
-  
+

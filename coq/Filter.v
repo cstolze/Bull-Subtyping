@@ -655,7 +655,7 @@ Module Types (VAlpha : VariableAlphabet).
         forall τ ρ1 ρ2 σ, ↓[σ] → [ρ1] τ -> ↓[σ] → [ρ2] τ -> ↓[σ] → [ρ1 ∩ ρ2] τ.
       Proof.
         intro τ.
-        induction τ as [ | | * IH1 * IH2 | * x * y ];
+        induction τ as [ | * IH1 * IH2 | * IH1 * IH2 | ];
           intros * * * H1 H2;
           inversion H1 as [ | | | | * * * * p1H1 p2H1 ];
           inversion H2 as [ | | | | * * * * p1H2 p2H2 ];
@@ -706,7 +706,7 @@ Module Types (VAlpha : VariableAlphabet).
             * exact p1H2.
           + eapply IH2.
             * exact p2H1.
-            * exact p2H2. 
+            * exact p2H2.
           + apply (transitivity InterIdem).
             apply SubtyDistrib.
             * rewrite <- associativity.
@@ -1059,7 +1059,7 @@ Module Types (VAlpha : VariableAlphabet).
       Lemma VariableFilter_decidable: forall α τ, { ↑α[α] τ } + { ~(↑α[α] τ) }.
       Proof.
         intros α τ.
-        induction τ as [ β | σ IHσ τ IH τ | ρ1 IHρ1 ρ2 IHρ2 | ].
+        induction τ as [ β | σ IHσ τ IH | ρ1 IHρ1 ρ2 IHρ2 | ].
         - set (varEq := 𝕍_eq_dec β α).
           inversion varEq as [ equal | notEqual ].
             { rewrite equal. left. fold (Ideal (Var β) (Var β)). reflexivity. }
@@ -1646,7 +1646,7 @@ Module Types (VAlpha : VariableAlphabet).
       Fact path_not_omega: forall τ, Path τ -> ~ Ω τ.
       Proof.
         intro τ.
-        induction τ as [ | σ' ? τ' IHτ' pτ' | ρ1 ? ρ2 | ];
+        induction τ as [ | σ' ? τ' IHτ' | ρ1 ? ρ2 | ];
           intros pτ; intro ωτ;
           inversion ωτ.
         - inversion pτ as [ | ? ? pτ' ].
@@ -2132,4 +2132,3 @@ Module CoqExample.
 
   (* Run this:  Eval compute in subtype_proof *)
 End CoqExample.
-

@@ -8,8 +8,8 @@ open Core_bench.Std
 
 let worstCase n =
   let rec arr = Array.init n (fun x -> x)
-  and makeLeftType s n = Inter (Arr (Var n, Var n), s)  
-  and makeRightType s m = 
+  and makeLeftType s n = Inter (Arr (Var n, Var n), s)
+  and makeRightType s m =
     let sigma = Array.fold_left (fun s n -> if n <> m then Inter (Var(n), s) else s) Omega arr in
     Inter(Arr(sigma, sigma), s)
   in
@@ -29,7 +29,7 @@ let rec ty_size ty =
     | Arr(s, t) -> 1 + ty_size s + ty_size t
     | Inter(s, t) -> 1 + ty_size s + ty_size t
 
-let worstCaseTest = 
+let worstCaseTest =
   let (x, y) = worstCase 200 in
   let foo = printf "%d %d\n" (ty_size x) (ty_size y) in
   Bench.Test.create ~name:(sprintf "worstcase %d" (ty_size y)) (fun () -> decide_subtypes x y)
