@@ -4,6 +4,144 @@ Require Arith_base.
 Require NArith.
 Require NZAddOrder.
 Require Import Coq.Structures.Equalities.
+Require Import Coq.Relations.Relation_Operators.
+Import Coq.Classes.RelationClasses.
+Import Coq.Relations.Operators_Properties.
+Import Coq.Relations.Relation_Definitions.
+
+Require Import Quote.
+Definition index_eq : forall i j : index, {i = j} + {i <> j}.
+Proof.
+  decide equality.
+Defined.
+
+Module Type HasPreOrder.
+  Parameter t : Type.
+  Parameter le : relation t.
+  Axiom le_is_preorder : PreOrder le.
+End HasPreOrder.
+
+Module MakePreOrderTactic (T : HasPreOrder).
+  Definition local_le : relation (option T.t) :=
+    fun x y =>
+      match x with
+      | Some a => match y with
+                  | Some b => T.le a b
+                  | None => False
+                  end
+      | None => match y with
+                | Some _ => False
+                | None => True
+                end
+      end.
+  Local Notation "x < y" := (local_le x y).
+
+  Instance local_le_preorder : PreOrder local_le.
+  Proof.
+    constructor.
+    - intro x; destruct x;
+        simpl; reflexivity.
+    - intros x y z; destruct x, y, z; simpl; intros;
+        solve [etransitivity; eauto
+              | trivial
+              | exfalso; trivial].
+  Qed.
+
+  Definition ctx := varmap (option T.t).
+  Definition denote (c : ctx) (i : index) : option T.t := varmap_find None i c.
+
+  Ltac addToList x xs :=
+  let b := true in
+    match b with
+      | true => xs
+      | false => constr:((x, xs))
+    end.
+  
+  Goal forall (A B C D E : Prop), (A -> A) /\ (B -> A) /\(C -> A) /\(D -> A).
+  Proof.
+    intros.
+    repeat split. all:[> intro | intro | intro | intro].
+    let t := constr:((3,4)) in idtac t.
+
+  Qed.
+  Definition formula : Set := (list (index * index)) * (index * index).
+
+  Definition denote_formula (c : ctx) (f : formula) : Prop :=
+    match f with
+    | (l, (i,j)) =>
+      (fix loop l :=
+         match l with
+         | nil => denote c i < denote c j
+         | cons (i,j) l' => denote c i < denote c j -> loop l'
+         end) l
+    end.
+
+  Lemma JUSTWORKPLS : forall x y z t, x < y -> z < t -> y < z -> x < t.
+  Proof.
+    intros.
+    my_quote. (* how to ????? *)
+  Qed.
+
+  Lemma denote_cons : forall c i j l a b, denote_formula c (cons (i,j) l, (a,b)) = (denote c i < denote c j -> denote_formula c (l,(a,b))).
+  Proof.
+    intros.
+    induction l; auto.
+  Qed.
+
+  Lemma denote_trans : forall {c l x} y {z}, denote_formula c (l,(x,y)) -> denote_formula c (l,(y,z)) -> denote_formula c (l,(x,z)).
+  Proof.
+    intros ? l ? ? ?; induction l as [|(?,?) ?];
+      repeat rewrite denote_cons;
+      auto; simpl.
+    etransitivity; eauto.
+  Qed.
+
+  Lemma denote_hyp : forall c l a b, denote c a < denote c b -> denote_formula c (l,(a,b)).
+  Proof.
+    intros c l a b; induction l as [|(i,j) l];
+      try rewrite denote_cons; auto.
+  Qed.
+
+  Inductive partial {A : Prop} :=
+  | Yes : A -> partial
+  | No : partial.
+  Notation "[[ A ]]" := (@partial A).
+
+  Definition preorder_heuristic : forall (c : ctx) (f : formula), [[ denote_formula c f ]].
+    intros ? [l (a,b)].
+    generalize a b; clear a b.
+    induction l as [|(i,j) l is_less]; intros a b.
+    - refine (if (index_eq a b) then Yes _ else No); simpl; subst.
+      reflexivity.
+    - rewrite denote_cons.
+      refine (match (is_less a b) with
+              | Yes _ => Yes _
+              | No => match (is_less a i) with
+                      | Yes _ => match (is_less j b) with
+                                 | Yes _ => Yes _
+                                 | No => No
+                                 end
+                      | No => No
+                      end
+              end); auto.
+        intro.
+        apply (denote_trans i); trivial.
+        apply (denote_trans j); trivial.
+        apply denote_hyp; trivial.
+  Defined.
+
+  Definition partialOut {A : Prop} (p : [[A]]) : match p with | Yes _ => A | No => True end :=
+    match p with
+    | Yes p => p
+    | No => I
+    end.
+
+  Ltac preorder :=
+    match goal with
+    | |- denote_formula ?c ?f => exact (partialOut (preorder_heuristic c f))
+    end.
+
+End MakePreOrderTactic.
 
 Module Type SetTyp <: Typ.
   Parameter t : Set.
@@ -44,7 +182,6 @@ Module Types (VAlpha : VariableAlphabet).
     Reserved Infix "≤" (at level 89).
     Reserved Infix "~=" (at level 89).
 
-    Import Coq.Relations.Relation_Operators.
 
     Inductive Subtype : term -> term -> Prop :=
     | R_InterMeetLeft : forall σ τ, σ ∩ τ ≤ σ
@@ -89,9 +226,6 @@ Module Types (VAlpha : VariableAlphabet).
     Coercion EqualTypesAreSubtypes_left : EqualTypes >-> Subtype.
     (*Coercion EqualTypesAreSubtypes_right : EqualTypes >-> Subtypes.*)
 
-    Import Coq.Classes.RelationClasses.
-    Import Coq.Relations.Operators_Properties.
-    Import Coq.Relations.Relation_Definitions.
     Instance Subtypes_Reflexive : Reflexive (≤) := R_Reflexive.
     Hint Resolve Subtypes_Reflexive: SubtypeHints.
     Instance Subtypes_Transitive : Transitive (≤) := R_Transitive.
