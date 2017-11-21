@@ -38,7 +38,7 @@ Module Types (VAlpha : VariableAlphabet).
   Notation "(∩)" := (Inter) (only parsing).
   Infix "∪" := (Union) (at level 85, right associativity).
   Notation "(∪)" := (Union) (only parsing).
-  Definition ω := (Omega).
+  Notation "'ω'" := (Omega).
 
   Module SubtypeRelation.
     Reserved Infix "≤" (at level 89).
@@ -279,6 +279,12 @@ Module Types (VAlpha : VariableAlphabet).
 
     Import Setoids.Setoid.
 
+    Inductive isFilter : term -> Prop :=
+    | VarisFilter : forall n, isFilter (Var n)
+    | ArrowisFilter : forall s t, isFilter (Arr s t)
+    | OmegaisFilter : isFilter Omega
+    | InterisFilter : forall s t, isFilter s -> isFilter t -> isFilter (Inter s t).
+
     Reserved Notation "↑[ σ ] τ" (at level 89).
     Reserved Notation "↓[ σ ] τ" (at level 89).
     Inductive Filter : term -> term -> Prop :=
@@ -287,14 +293,17 @@ Module Types (VAlpha : VariableAlphabet).
     | UnionFilter2 : forall s t r, Filter s r -> Filter s (Union t r)
     | ReflVar : forall n, Filter (Var n) (Var n)
     | ReflOmega : Filter Omega Omega
-    | OmegaTop : forall s t, Filter Omega t -> Filter s t
+    | OmegaTop : forall s t, isFilter s -> s <> Omega -> Filter Omega t -> Filter s t
     | OmegaFilter : forall s t, Filter Omega t -> Filter Omega (Arr s t)
     | ArrowFilter : forall s1 s2 t1 t2, s2 ≤ s1 -> t1 ≤ t2 -> Filter (Arr s1 t1) (Arr s2 t2)
-    | InterRule1 : forall s1 s2 t, Filter s1 t -> Filter (Inter s1 s2) t
-    | InterRule2 : forall s1 s2 t, Filter s2 t -> Filter (Inter s1 s2) t
+    | InterRule1 : forall s1 s2 t, isFilter s2 -> Filter s1 t -> Filter (Inter s1 s2) t
+    | InterRule2 : forall s1 s2 t, isFilter s1 -> Filter s2 t -> Filter (Inter s1 s2) t
     | InterArrowFilter1 : forall s1 s2 t r1 r2, Filter (Inter s1 s2) (Arr t r1) -> Filter (Inter s1 s2) (Arr t r2) -> Filter (Inter s1 s2) (Arr t (Inter r1 r2))
     | InterArrowFilter2 : forall s1 s2 t1 t2 r, Filter (Inter s1 s2) (Arr t1 r) -> Filter (Inter s1 s2) (Arr t2 r) -> Filter (Inter s1 s2) (Arr (Union t1 t2) r)
     where "↑[ σ ] τ" := (Filter σ τ).
+
+    Create HintDb FilterHints.
+    Hint Constructors Filter : FilterHints.
 
     Lemma Filter_correct : forall s t, Filter s t -> s ≤ t.
     Proof.
@@ -304,6 +313,106 @@ Module Types (VAlpha : VariableAlphabet).
       - transitivity Omega; auto with SubtypeHints.
       - etransitivity; [|apply R_InterDistrib]; auto with SubtypeHints.
       - etransitivity; [|apply R_UnionDistrib]; auto with SubtypeHints.
+    Qed.
+
+    Lemma Filter_isFilter: forall s t, Filter s t -> isFilter s.
+    Proof.
+      intros s t H; induction H; auto; constructor; auto.
+    Qed.
+    Hint Resolve Filter_isFilter : FilterHints.
+
+    Ltac is_in_filter :=
+      auto;
+      match goal with
+      (* trivial goals *)
+      | H : ?x |- ?x => assumption
+      | |- _ <> _ => intro H; now inversion H
+      | |- isFilter _ => eapply Filter_isFilter; eassumption
+      | H : Omega <> Omega |- _ => exfalso; apply H; reflexivity
+
+      (* decomposition of ↑[ _] hypotheses *)
+      | H : ↑[ _] (Inter _ _) |- _ => inversion H; clear H; subst; is_in_filter
+      | H : ↑[ _] (_ → _) |- _ => inversion H; clear H; subst; is_in_filter
+      | H : ↑[ _] (Union _ _) |- _ => inversion H; clear H; subst; is_in_filter
+
+      (* decomposition of the goal *)
+      | |- ↑[ _] (Inter _ _) => apply InterFilter; is_in_filter
+      | |- ↑[ Omega] (_ → _) => apply OmegaFilter; is_in_filter
+      | |- ↑[ _] (Union _ _) => solve [apply UnionFilter1; is_in_filter
+                                      |apply UnionFilter2; is_in_filter]
+
+      (* security *)
+      | H : ↑[ Omega] _ |- ↑[ Omega] _ => eauto with FilterHints
+      (* coerce to Omega *)
+      | |- ↑[ _] Omega => apply OmegaTop; is_in_filter
+      | |- ↑[ (Var _)] (Arr _ _) => apply OmegaTop; is_in_filter
+
+      (* subtyping *)
+      | |- _ ≤ _ =>
+        repeat match goal with
+               (* first step: get subtyping hypotheses *)
+               | H : ↑[ ?s] ?t |- _ => assert (s ≤ t) by (apply Filter_correct; assumption);
+                                       clear H
+               (* second step: decompose the goal *)
+               | |- ?σ ≤ ?τ ∩ ?ρ => apply Inter_inf
+               | |- ?σ ∩ ?τ ≤ ?ρ => apply Inter_inf_dual
+               | |- ?σ ∪ ?τ ≤ ?ρ => apply Union_sup
+               | |- ?σ ≤ ?τ ∪ ?ρ => apply Union_sup_dual
+               | |- ?σ ≤ Omega => apply R_OmegaTop
+               (* third step: rewrite all the hypotheses *)
+               | H : Omega ≤ _ |- _ => try rewrite <- H; clear H (* shouldn't be harmful because everything has previously been decomposed into an 'atomic' proposition *)
+               (* final step *)
+               | |- _ => try assumption
+               end
+
+      (* welp *)
+      | |- ↑[ (Arr _ _)] _ => auto with FilterHints
+      | |- ↑[ _] _ => auto with FilterHints
+      end.
+
+    Lemma Filter_omega : forall s t, Filter Omega s -> s ≤ t -> Filter Omega t.
+    Proof.
+      intros s t Fos lst.
+      induction lst;
+        is_in_filter.
+    Qed.
+    Hint Resolve Filter_omega: FilterHints.
+
+    Lemma Filter_var : forall n s t, Filter (Var n) s -> s ≤ t -> Filter (Var n) t.
+    Proof.
+      intros n s t Fos lst.
+      induction lst;
+        is_in_filter.
+    Qed.
+
+    Lemma Filter_arrow : forall s t r1 r2, Filter (Arr s t) r1 -> r1 ≤ r2 -> Filter (Arr s t) r2.
+    Proof.
+      intros s t r1 r2 Fos lst.
+      induction lst;
+        is_in_filter.
+      apply ArrowFilter; is_in_filter. (* !!!!!!!!!! *)
+
+      apply ArrowFilter;
+        is_in_filter.
+      apply ArrowFilter;
+        is_in_filter.
+      apply ArrowFilter;
+        is_in_filter.
+      apply OmegaTop; (* !!!!! *)
+      is_in_filter.
+      apply ArrowFilter;
+        is_in_filter.
+      reduce.
+      rewrite lst1.
+      rewrite lst1.
+      is_in_filter.
+      is_in_filter.
+      is_in_filter.
+      is_in_filter.
+      is_in_filter.
+      is_in_filter.
+      is_in_filter.
+      is_in_filter.
     Qed.
 
     Inductive Ideal : term -> -> term -> Prop :=
