@@ -8,21 +8,27 @@ Require Import Coq.Relations.Relation_Operators.
 Import Coq.Classes.RelationClasses.
 Import Coq.Relations.Operators_Properties.
 Import Coq.Relations.Relation_Definitions.
+Import Classes.Morphisms.
 
 Set Implicit Arguments.
 
+(* Useful type: vector *)
 Inductive vector (A : Type) : nat -> Type :=
 | vnil : vector A 0
 | vcons : forall n : nat, A -> vector A n -> vector A (S n).
 (* For vcons: Arguments A, n are implicit *)
 
+(* Indexes for accessing vectors *)
 Definition index (n : nat) := {m : nat | m < n}.
-(* Compare_dec.lt_dec: forall n m : nat, {n < m} + {~ n < m} *)
+
+(* Magic trick to cast (i : nat) to an index {i : nat | i < n} *)
 Ltac nat_to_index i n :=
+  (* Compare_dec.lt_dec: forall n m : nat, {n < m} + {~ n < m} *)
   match eval lazy in (Compare_dec.lt_dec i n) with
   | left _ ?a => constr:(exist (fun x => x < n) i a)
   end.
 
+(* Helper function *)
 Fixpoint _get {A : Type} {n : nat} (v : vector A n) {i : nat} {struct v} : i < n -> A.
   refine (match v in vector _ n' return i < n' -> A with
           | vnil _ => fun p : i < 0 => _
@@ -34,6 +40,8 @@ Fixpoint _get {A : Type} {n : nat} (v : vector A n) {i : nat} {struct v} : i < n
   - exfalso; inversion p.
   - apply Lt.lt_S_n; assumption.
 Defined.
+
+(* _get is proof-irrelevant *)
 Lemma _get_irrelevant : forall A n (v : vector A n) i (p p' : i < n), _get v p = _get v p'.
 Proof.
   intros ? ? v; induction v; intros i p ?.
@@ -41,11 +49,15 @@ Proof.
   - simpl; destruct i; trivial.
 Qed.
 
+(* Wrapper for _get *)
 Definition get {A : Type} {n : nat} (v : vector A n) (i : index n) : A :=
   match i with
   | exist _ _ p => _get v p
   end.
 
+(* Ltac functions for manipulation vectors *)
+
+(* Magic trick to see if x is syntactically in v *)
 Ltac is_in_vector x v :=
   match v with
   | vnil _ => false
@@ -53,12 +65,14 @@ Ltac is_in_vector x v :=
   | vcons _ ?v' => is_in_vector x v'
   end.
 
+(* Use vector as finite set *)
 Ltac add_in_vector x v :=
   match is_in_vector x v with
   | true => v
   | false => constr:(vcons x v)
   end.
 
+(* Find the position of x in v (x must be in v) (returns an integer) *)
 Ltac lookup_vector x v :=
   match v with
   | vcons x _ => O
@@ -66,12 +80,121 @@ Ltac lookup_vector x v :=
                    constr:(S n)
   end.
 
-Section MakePreOrderTactic.
-  Hypothesis A : Type.
-  Hypothesis R : relation A.
-  Hypothesis R_po : PreOrder R.
+(* Parametrized parameters *)
+Module Type HasPreOrder.
+  Parameter A : Type.
+  Parameter R : relation A.
+  Parameter R_po : PreOrder R.
+End HasPreOrder.
+
+(* This module declare a tactic called "preorder" which either solves or fail the following kind of goal: *)
+(* H1 : x1 < y1, H2 : x2 < y2 ... |- xn < yn *)
+(* The hypotheses don't need to be all introduced *)
+(* The solver only uses the reflexivity and transitivity properties of the preorder *)
+(* You have to instantiate the module (with a module of type HasPreOrder) in order to use the tactic *)
+Module MakePreOrderTactic (T : HasPreOrder).
+  Import T.
   Local Notation "x < y" := (R x y).
 
+  (* The objects are reified into indexes *)
+  (* The statements x < y are reified into a pair (index_x, index_y) *)
+  (* The problem is reified into the pair (hypotheses list, goal) *)
+  Definition formula (n : nat) : Set := (list (index n * index n)) * (index n * index n).
+
+  (* Transform the reification back to the problem *)
+  Definition denote_formula {n : nat} (v : vector A n) (f : formula n) : Prop :=
+    match f with
+    | (l, (i,j)) =>
+      (fix loop l :=
+         match l with
+         | nil => get v i < get v j
+         | cons (i,j) l' => get v i < get v j -> loop l'
+         end) l
+    end.
+
+  (* Heuristic type for heuristic functions: gimme a proof (Yes) or don't (No) *)
+  Inductive partial {A : Prop} :=
+  | Yes : A -> partial
+  | No : partial.
+  Local Notation "[[ A ]]" := (@partial A).
+
+  (* Unpacking a heuristic proof *)
+  Definition partialOut {A : Prop} (p : [[A]]) : match p with | Yes _ => A | No => True end :=
+    match p with
+    | Yes p => p
+    | No => I
+    end.
+
+  (* Helper lemmas: they are transparent because they help a computation *)
+  (* Adding hypotheses work properly *)
+  Lemma denote_cons : forall n (c: vector _ n) i j l a b, denote_formula c (cons (i,j) l, (a,b)) = (get c i < get c j -> denote_formula c (l,(a,b))).
+  Proof.
+    intros.
+    induction l; auto.
+  Defined.
+
+  (* We keep the transitivity property in the goal *)
+  Lemma denote_trans : forall {n} {c : vector _ n} {l x} y {z}, denote_formula c (l,(x,y)) -> denote_formula c (l,(y,z)) -> denote_formula c (l,(x,z)).
+  Proof.
+    intros ? ? l ? ? ?; induction l as [|(?,?) ?];
+      repeat rewrite denote_cons;
+      auto; simpl.
+    etransitivity; eauto.
+  Defined.
+
+  (* Sometimes, a < b because a < b *)
+  Lemma denote_hyp : forall n (c : vector _ n) l a b, get c a < get c b -> denote_formula c (l,(a,b)).
+  Proof.
+    intros ? ? l ? ?; induction l as [|(?,?) ?];
+      try rewrite denote_cons; auto.
+  Defined.
+
+  (* Heuristic *)
+  Definition preorder_heuristic : forall (n : nat) (c : vector A n) (f : formula n), [[ denote_formula c f ]].
+    intros ? ? [l (a,b)]; generalize a b; clear a b.
+    induction l as [|(i,j) l is_less]; intros a b.
+    - (* Case with no hypothesis: a < b if a is syntactically b (same index) *)
+      destruct a as [a ?], b as [b ?].
+      (* PeanoNat.Nat.eq_dec: forall n m : nat, {n = m} + {n <> m} *)
+      refine (if (PeanoNat.Nat.eq_dec a b)
+              then Yes _
+              else No); simpl; subst.
+      erewrite _get_irrelevant.
+      reflexivity.
+    - (* Inductive case: either induction of transitivity through the new hypothesis *)
+      rewrite denote_cons.
+      refine (match (is_less a b) with
+              | Yes _ => Yes _
+              | No => match (is_less a i) with
+                      | Yes _ => match (is_less j b) with
+                                 | Yes _ => Yes _
+                                 | No => No
+                                 end
+                      | No => No
+                      end
+              end); trivial; intros.
+      (* Transitive case *)
+      apply (denote_trans i); trivial.
+      apply (denote_trans j); trivial.
+      apply denote_hyp; trivial.
+  Defined.
+
+  (* Ltac magic *)
+  (* Ltac does syntactical pattern-matching (no conversion), so we have to convert the preorder relation to R (which probably has another name outside of this module) *)
+  Ltac prepare :=
+    match goal with
+    | H : ?r ?x ?y |- _ => match r with
+                           | R => fail 1
+                           | _ => (change (x < y) in H || fail 1); prepare
+                           end
+    | |- ?r ?x ?y => match r with
+                     | R => fail 1
+                     | _ => (change (x < y) || fail 1); prepare
+                     end
+    | _ => idtac
+    end.
+
+  (* Parse the formula to record all the objects in a vector *)
   Ltac create_vector e :=
     match e with
     | ?x < ?y -> ?e' => let v' := create_vector e' in
@@ -79,8 +202,7 @@ Section MakePreOrderTactic.
     | ?x < ?y => add_in_vector x constr:(vcons y (vnil A))
     end.
 
-  Definition formula (n : nat) : Set := (list (index n * index n)) * (index n * index n).
-
+  (* Create a formula f such that denote_formula v f = e *)
   Ltac create_formula e v :=
     let n := match type of v with
              | vector _ ?n => n
@@ -97,16 +219,7 @@ Section MakePreOrderTactic.
                  constr:((@nil (index n * index n),(x,y)))
     end.
 
-  Definition denote_formula {n : nat} (v : vector A n) (f : formula n) : Prop :=
-    match f with
-    | (l, (i,j)) =>
-      (fix loop l :=
-         match l with
-         | nil => get v i < get v j
-         | cons (i,j) l' => get v i < get v j -> loop l'
-         end) l
-    end.
-
+  (* Revert all the _ < _ hypotheses and replace the goal with denote_formula v f *)
   Ltac quote_formula :=
     repeat match goal with
            | H : _ < _ |- _ => revert H; clear H
@@ -117,124 +230,58 @@ Section MakePreOrderTactic.
                change (denote_formula v f)
     end.
 
-  Lemma denote_cons : forall n (c: vector _ n) i j l a b, denote_formula c (cons (i,j) l, (a,b)) = (get c i < get c j -> denote_formula c (l,(a,b))).
-  Proof.
-    intros.
-    induction l; auto.
-  Defined.
-
-  Lemma denote_trans : forall {n} {c : vector _ n} {l x} y {z}, denote_formula c (l,(x,y)) -> denote_formula c (l,(y,z)) -> denote_formula c (l,(x,z)).
-  Proof.
-    intros ? ? l ? ? ?; induction l as [|(?,?) ?];
-      repeat rewrite denote_cons;
-      auto; simpl.
-    etransitivity; eauto.
-  Qed.
-
-  Lemma denote_hyp : forall n (c : vector _ n)  l a b, get c a < get c b -> denote_formula c (l,(a,b)).
-  Proof.
-    intros ? ? l ? ?; induction l as [|(?,?) ?];
-      try rewrite denote_cons; auto.
-  Qed.
-
-  Inductive partial {A : Prop} :=
-  | Yes : A -> partial
-  | No : partial.
-  Notation "[[ A ]]" := (@partial A).
-
-  Definition preorder_heuristic : forall (n : nat) (c : vector A n) (f : formula n), [[ denote_formula c f ]].
-    intros ? ? [l (a,b)].
-    generalize a b; clear a b.
-    induction l as [|(i,j) l is_less]; intros a b.
-    - destruct a as [a ?], b as [b ?].
-      (* PeanoNat.Nat.eq_dec: forall n m : nat, {n = m} + {n <> m} *)
-      refine (if (PeanoNat.Nat.eq_dec a b) then Yes _ else No); simpl; subst.
-      erewrite _get_irrelevant.
-      reflexivity.
-    - rewrite denote_cons.
-      refine (match (is_less a b) with
-              | Yes _ => Yes _
-              | No => match (is_less a i) with
-                      | Yes _ => match (is_less j b) with
-                                 | Yes _ => Yes _
-                                 | No => No
-                                 end
-                      | No => No
-                      end
-              end); auto.
-        intro.
-        apply (denote_trans i); trivial.
-        apply (denote_trans j); trivial.
-        apply denote_hyp; trivial.
-  Defined.
-
-  Definition partialOut {A : Prop} (p : [[A]]) : match p with | Yes _ => A | No => True end :=
-    match p with
-    | Yes p => p
-    | No => I
-    end.
-
+  (* Main tactic *)
   Ltac preorder :=
-    quote_formula;
-    match goal with
-    | |- denote_formula ?c ?f => exact (partialOut (preorder_heuristic c f))
-    end.
-
-  Lemma test : forall (x y z t : A), x < t -> y < z -> t < y -> x < z.
-  Proof.
-    intros.
-    preorder.
-  Qed.
+    intros;
+    prepare;
+    (quote_formula;
+     match goal with
+     | |- denote_formula ?c ?f => exact (partialOut (preorder_heuristic c f))
+     end) || fail "preorder tactic unsuccessful".
 
 End MakePreOrderTactic.
 
-Lemma test2 : forall (x y z t : nat), x <= t -> y <= z -> t <= y -> x <= z.
-Proof.
-  intros.
-  preorder.
-Qed.
-
-
+(* Dummy module type *)
 Module Type SetTyp <: Typ.
   Parameter t : Set.
 End SetTyp.
 
+(* Module type for the variables: equality has to be decidable *)
 Module Type VariableAlphabet <: UsualDecidableType :=
   SetTyp <+ HasUsualEq <+ UsualIsEq <+ HasEqDec.
 
 Module Types (VAlpha : VariableAlphabet).
   Definition 𝕍 := VAlpha.t.
   Definition 𝕍_eq_dec: forall α β : 𝕍, { α = β } + { α <> β } := VAlpha.eq_dec.
-
   Local Hint Resolve 𝕍_eq_dec.
 
+  (* Our type syntax *)
   Inductive term : Set :=
   | Var : 𝕍 -> term
   | Arr : term -> term -> term
   | Inter : term -> term -> term
   | Union : term -> term -> term
   | Omega : term.
+  Infix "→" := (Arr) (at level 60, right associativity).
+  Notation "(→)" := Arr (only parsing).
+  Infix "∩" := (Inter) (at level 35, right associativity).
+  Notation "(∩)" := (Inter) (only parsing).
+  Infix "∪" := (Union) (at level 30, right associativity).
+  Notation "(∪)" := (Union) (only parsing).
+  Notation "'ω'" := (Omega).
 
   Lemma term_eq_dec: forall σ τ : term, { σ = τ } + { σ <> τ }.
   Proof.
     decide equality.
   Defined.
-
   Hint Resolve term_eq_dec.
 
-  Infix "→" := (Arr) (at level 88, right associativity).
-  Notation "(→)" := Arr (only parsing).
-  Infix "∩" := (Inter) (at level 80, right associativity).
-  Notation "(∩)" := (Inter) (only parsing).
-  Infix "∪" := (Union) (at level 85, right associativity).
-  Notation "(∪)" := (Union) (only parsing).
-  Notation "'ω'" := (Omega).
-
   Module SubtypeRelation.
-    Reserved Infix "≤" (at level 89).
-    Reserved Infix "~=" (at level 89).
+    Reserved Infix "≤" (at level 70).
+    Reserved Infix "~=" (at level 70).
 
-
+    (* The subtyping axioms, as defined in the theory Ξ of
+       Barbanera, Franco, Mariangiola Dezani-Ciancaglini, and Ugo Deliguoro. "Intersection and union types: syntax and semantics." Information and Computation 119.2 (1995): 202-230. *)
     Inductive Subtype : term -> term -> Prop :=
     | R_InterMeetLeft : forall σ τ, σ ∩ τ ≤ σ
     | R_InterMeetRight : forall σ τ, σ ∩ τ ≤ τ
@@ -262,6 +309,7 @@ Module Types (VAlpha : VariableAlphabet).
     Notation "(≤)" := (Subtype) (only parsing).
 
     Create HintDb SubtypeHints.
+    (* Everything but transitivity can be used by the solver *)
     Hint Resolve R_InterMeetLeft R_InterMeetRight R_InterIdem R_UnionMeetLeft R_UnionMeetRight R_UnionIdem R_InterDistrib R_UnionDistrib R_InterSubtyDistrib R_UnionSubtyDistrib R_InterUnionDistrib R_CoContra R_OmegaTop R_OmegaArrow R_Reflexive : SubtypeHints.
 
     Definition EqualTypes (σ τ : term) : Prop := (σ ≤ τ) /\ (τ ≤ σ).
@@ -269,27 +317,28 @@ Module Types (VAlpha : VariableAlphabet).
     Notation "σ ~= τ" := (EqualTypes σ τ).
     Notation "(~=)" := (EqualTypes) (only parsing).
 
-    Definition EqualTypesAreSubtypes_left: forall σ τ, σ ~= τ -> σ ≤ τ.
-      compute; tauto.
-    Defined.
-    Definition EqualTypesAreSubtypes_right: forall σ τ, σ ~= τ -> τ ≤ σ.
-      compute; tauto.
-    Defined.
-    Coercion EqualTypesAreSubtypes_left : EqualTypes >-> Subtype.
-    (*Coercion EqualTypesAreSubtypes_right : EqualTypes >-> Subtypes.*)
-
+    (* Unlock all the preorder-related tactics for ≤ *)
     Instance Subtypes_Reflexive : Reflexive (≤) := R_Reflexive.
     Hint Resolve Subtypes_Reflexive: SubtypeHints.
     Instance Subtypes_Transitive : Transitive (≤) := R_Transitive.
     Instance Subtypes_Preorder : PreOrder (≤) :=
       {| PreOrder_Reflexive := Subtypes_Reflexive;
          PreOrder_Transitive := Subtypes_Transitive |}.
+    (* TODO: find better names for Foo and Bar *)
+    Module Foo <: HasPreOrder.
+      Definition A : Type := term.
+      Definition R : relation A := (≤).
+      Definition R_po : PreOrder R := Subtypes_Preorder.
+    End Foo.
+    Module Bar := MakePreOrderTactic Foo.
+    Tactic Notation "preorder" := Bar.preorder.
+    Hint Extern 5 (_ ≤ _) => preorder : SubtypeHints.
 
+    (* Unlock all the equivalence-related tactics for ~= *)
     Instance EqualTypes_Reflexive: Reflexive (~=).
     Proof.
       auto with SubtypeHints.
     Defined.
-
     Instance EqualTypes_Transitive: Transitive (~=).
     Proof.
       compute.
@@ -305,13 +354,13 @@ Module Types (VAlpha : VariableAlphabet).
          Equivalence_Transitive := EqualTypes_Transitive;
          Equivalence_Symmetric := EqualTypes_Symmetric |}.
 
+    (* Useless ??? *)
     Instance Subtypes_PartialOrder : PartialOrder (~=) (≤).
     Proof.
       compute; tauto.
     Defined.
 
-    Import Classes.Morphisms.
-
+    (* Let's make the SubtypeHints database bigger *)
     Fact Inter_inf : forall σ τ ρ, σ ≤ τ -> σ ≤ ρ -> σ ≤ τ ∩ ρ.
     Proof.
       intros.
@@ -379,6 +428,7 @@ Module Types (VAlpha : VariableAlphabet).
     Defined.
     Hint Resolve UnionInterDistrib : SubtypeHints.
 
+    (* For more tactics, we show the operators are compatible with the relations *)
     Instance Inter_Proper_ST : Proper ((≤) ==> (≤) ==> (≤)) (∩).
     Proof.
       compute; auto with SubtypeHints.
@@ -415,6 +465,9 @@ Module Types (VAlpha : VariableAlphabet).
       auto with SubtypeHints.
     Defined.
 
+    (* Unicode starts dying below this point *)
+
+    (* First rewriting function: do Omega-related simplifications *)
     Fixpoint deleteOmega (s : term) : term :=
       match s with
       | s → t => let s := deleteOmega s in
@@ -512,9 +565,9 @@ Module Types (VAlpha : VariableAlphabet).
       match goal with
       (* trivial goals *)
       | H : ?x |- ?x => assumption
-      | |- _ <> _ => intro H; now inversion H
+      | |- _ <> _ => discriminate
       | |- isFilter _ => eapply Filter_isFilter; eassumption
-      | H : Omega <> Omega |- _ => contradiction
+      | H : ?x <> ?x |- _ => contradiction
 
       (* decomposition of ↑[ _] hypotheses *)
       | H : ↑[ _] (Inter _ _) |- _ => inversion H; clear H; subst; is_in_filter
@@ -532,6 +585,9 @@ Module Types (VAlpha : VariableAlphabet).
       (* coerce to Omega *)
       | |- ↑[ _] Omega => apply OmegaTop; is_in_filter
       | |- ↑[ (Var _)] (Arr _ _) => apply OmegaTop; is_in_filter
+      (* Arrow *)
+      | |- ↑[ (Arr _ _)] (Arr _ _) => solve [apply ArrowFilter; is_in_filter
+                                              |apply OmegaTop; is_in_filter]
 
       (* subtyping *)
       | |- _ ≤ _ =>
@@ -545,14 +601,13 @@ Module Types (VAlpha : VariableAlphabet).
                | |- ?σ ∪ ?τ ≤ ?ρ => apply Union_sup
                | |- ?σ ≤ ?τ ∪ ?ρ => apply Union_sup_dual
                | |- ?σ ≤ Omega => apply R_OmegaTop
-               (* third step: rewrite all the hypotheses *)
-               | H : Omega ≤ _ |- _ => try rewrite <- H; clear H (* shouldn't be harmful because everything has previously been decomposed into an 'atomic' proposition *)
+               (* third step: rewrite all the omega equalities *)
+               | H : Omega ≤ _ |- _ => try rewrite <- H; clear H
                (* final step *)
-               | |- _ => try assumption
+               | |- _ => preorder
                end
 
       (* welp *)
-      | |- ↑[ (Arr _ _)] _ => auto with FilterHints
       | |- ↑[ _] _ => auto with FilterHints
       end.
 
@@ -576,30 +631,8 @@ Module Types (VAlpha : VariableAlphabet).
       intros s t r1 r2 Fos lst.
       induction lst;
         is_in_filter.
-      apply ArrowFilter; is_in_filter. (* !!!!!!!!!! *)
-
-      apply ArrowFilter;
-        is_in_filter.
-      apply ArrowFilter;
-        is_in_filter.
-      apply ArrowFilter;
-        is_in_filter.
-      apply OmegaTop; (* !!!!! *)
-      is_in_filter.
-      apply ArrowFilter;
-        is_in_filter.
-      reduce.
-      rewrite lst1.
-      rewrite lst1.
-      is_in_filter.
-      is_in_filter.
-      is_in_filter.
-      is_in_filter.
-      is_in_filter.
-      is_in_filter.
-      is_in_filter.
-      is_in_filter.
     Qed.
+
 
     Inductive Ideal : term -> -> term -> Prop :=
     | InterIdeal1 : forall s t r, Ideal s t -> Ideal s (Inter t r)
