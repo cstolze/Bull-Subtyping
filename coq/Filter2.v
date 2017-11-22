@@ -9,96 +9,131 @@ Import Coq.Classes.RelationClasses.
 Import Coq.Relations.Operators_Properties.
 Import Coq.Relations.Relation_Definitions.
 
-Require Import Quote.
-Definition index_eq : forall i j : index, {i = j} + {i <> j}.
-Proof.
-  decide equality.
+Set Implicit Arguments.
+
+Inductive vector (A : Type) : nat -> Type :=
+| vnil : vector A 0
+| vcons : forall n : nat, A -> vector A n -> vector A (S n).
+(* For vcons: Arguments A, n are implicit *)
+
+Definition index (n : nat) := {m : nat | m < n}.
+(* Compare_dec.lt_dec: forall n m : nat, {n < m} + {~ n < m} *)
+Ltac nat_to_index i n :=
+  match eval lazy in (Compare_dec.lt_dec i n) with
+  | left _ ?a => constr:(exist (fun x => x < n) i a)
+  end.
+
+Fixpoint _get {A : Type} {n : nat} (v : vector A n) {i : nat} {struct v} : i < n -> A.
+  refine (match v in vector _ n' return i < n' -> A with
+          | vnil _ => fun p : i < 0 => _
+          | vcons x v' => match i as x return x < _ -> A with
+                          | 0 => fun _ => x
+                          | S j => fun p : _ => _get A _ v' j _
+                          end
+          end).
+  - exfalso; inversion p.
+  - apply Lt.lt_S_n; assumption.
 Defined.
+Lemma _get_irrelevant : forall A n (v : vector A n) i (p p' : i < n), _get v p = _get v p'.
+Proof.
+  intros ? ? v; induction v; intros i p ?.
+  - inversion p.
+  - simpl; destruct i; trivial.
+Qed.
 
-Module Type HasPreOrder.
-  Parameter t : Type.
-  Parameter le : relation t.
-  Axiom le_is_preorder : PreOrder le.
-End HasPreOrder.
+Definition get {A : Type} {n : nat} (v : vector A n) (i : index n) : A :=
+  match i with
+  | exist _ _ p => _get v p
+  end.
 
-Module MakePreOrderTactic (T : HasPreOrder).
-  Definition local_le : relation (option T.t) :=
-    fun x y =>
-      match x with
-      | Some a => match y with
-                  | Some b => T.le a b
-                  | None => False
-                  end
-      | None => match y with
-                | Some _ => False
-                | None => True
-                end
-      end.
-  Local Notation "x < y" := (local_le x y).
+Ltac is_in_vector x v :=
+  match v with
+  | vnil _ => false
+  | vcons x _ => true
+  | vcons _ ?v' => is_in_vector x v'
+  end.
 
-  Instance local_le_preorder : PreOrder local_le.
-  Proof.
-    constructor.
-    - intro x; destruct x;
-        simpl; reflexivity.
-    - intros x y z; destruct x, y, z; simpl; intros;
-        solve [etransitivity; eauto
-              | trivial
-              | exfalso; trivial].
-  Qed.
+Ltac add_in_vector x v :=
+  match is_in_vector x v with
+  | true => v
+  | false => constr:(vcons x v)
+  end.
 
-  Definition ctx := varmap (option T.t).
-  Definition denote (c : ctx) (i : index) : option T.t := varmap_find None i c.
+Ltac lookup_vector x v :=
+  match v with
+  | vcons x _ => O
+  | vcons _ ?v' => let n := lookup_vector x v' in
+                   constr:(S n)
+  end.
 
-  Ltac addToList x xs :=
-  let b := true in
-    match b with
-      | true => xs
-      | false => constr:((x, xs))
+Section MakePreOrderTactic.
+  Hypothesis A : Type.
+  Hypothesis R : relation A.
+  Hypothesis R_po : PreOrder R.
+  Local Notation "x < y" := (R x y).
+
+  Ltac create_vector e :=
+    match e with
+    | ?x < ?y -> ?e' => let v' := create_vector e' in
+                        add_in_vector x ltac:(add_in_vector y v')
+    | ?x < ?y => add_in_vector x constr:(vcons y (vnil A))
     end.
-  
-  Goal forall (A B C D E : Prop), (A -> A) /\ (B -> A) /\(C -> A) /\(D -> A).
-  Proof.
-    intros.
-    repeat split. all:[> intro | intro | intro | intro].
-    let t := constr:((3,4)) in idtac t.
 
-  Qed.
-  Definition formula : Set := (list (index * index)) * (index * index).
+  Definition formula (n : nat) : Set := (list (index n * index n)) * (index n * index n).
 
-  Definition denote_formula (c : ctx) (f : formula) : Prop :=
+  Ltac create_formula e v :=
+    let n := match type of v with
+             | vector _ ?n => n
+             end in
+    match e with
+    | ?x < ?y -> ?e' => let x := nat_to_index ltac:(lookup_vector x v) n in
+                        let y := nat_to_index ltac:(lookup_vector y v) n in
+                        let f := create_formula e' v in
+                        match f with
+                        | pair ?l ?h => constr:((cons (x,y) l, h))
+                        end
+    | ?x < ?y => let x := nat_to_index ltac:(lookup_vector x v) n in
+                 let y := nat_to_index ltac:(lookup_vector y v) n in
+                 constr:((@nil (index n * index n),(x,y)))
+    end.
+
+  Definition denote_formula {n : nat} (v : vector A n) (f : formula n) : Prop :=
     match f with
     | (l, (i,j)) =>
       (fix loop l :=
          match l with
-         | nil => denote c i < denote c j
-         | cons (i,j) l' => denote c i < denote c j -> loop l'
+         | nil => get v i < get v j
+         | cons (i,j) l' => get v i < get v j -> loop l'
          end) l
     end.
 
-  Lemma JUSTWORKPLS : forall x y z t, x < y -> z < t -> y < z -> x < t.
-  Proof.
-    intros.
-    my_quote. (* how to ????? *)
-  Qed.
+  Ltac quote_formula :=
+    repeat match goal with
+           | H : _ < _ |- _ => revert H; clear H
+           end;
+    match goal with
+    | |- ?e => let v := create_vector e in
+               let f := create_formula e v in
+               change (denote_formula v f)
+    end.
 
-  Lemma denote_cons : forall c i j l a b, denote_formula c (cons (i,j) l, (a,b)) = (denote c i < denote c j -> denote_formula c (l,(a,b))).
+  Lemma denote_cons : forall n (c: vector _ n) i j l a b, denote_formula c (cons (i,j) l, (a,b)) = (get c i < get c j -> denote_formula c (l,(a,b))).
   Proof.
     intros.
     induction l; auto.
-  Qed.
+  Defined.
 
-  Lemma denote_trans : forall {c l x} y {z}, denote_formula c (l,(x,y)) -> denote_formula c (l,(y,z)) -> denote_formula c (l,(x,z)).
+  Lemma denote_trans : forall {n} {c : vector _ n} {l x} y {z}, denote_formula c (l,(x,y)) -> denote_formula c (l,(y,z)) -> denote_formula c (l,(x,z)).
   Proof.
-    intros ? l ? ? ?; induction l as [|(?,?) ?];
+    intros ? ? l ? ? ?; induction l as [|(?,?) ?];
       repeat rewrite denote_cons;
       auto; simpl.
     etransitivity; eauto.
   Qed.
 
-  Lemma denote_hyp : forall c l a b, denote c a < denote c b -> denote_formula c (l,(a,b)).
+  Lemma denote_hyp : forall n (c : vector _ n)  l a b, get c a < get c b -> denote_formula c (l,(a,b)).
   Proof.
-    intros c l a b; induction l as [|(i,j) l];
+    intros ? ? l ? ?; induction l as [|(?,?) ?];
       try rewrite denote_cons; auto.
   Qed.
 
@@ -107,11 +142,14 @@ Module MakePreOrderTactic (T : HasPreOrder).
   | No : partial.
   Notation "[[ A ]]" := (@partial A).
 
-  Definition preorder_heuristic : forall (c : ctx) (f : formula), [[ denote_formula c f ]].
-    intros ? [l (a,b)].
+  Definition preorder_heuristic : forall (n : nat) (c : vector A n) (f : formula n), [[ denote_formula c f ]].
+    intros ? ? [l (a,b)].
     generalize a b; clear a b.
     induction l as [|(i,j) l is_less]; intros a b.
-    - refine (if (index_eq a b) then Yes _ else No); simpl; subst.
+    - destruct a as [a ?], b as [b ?].
+      (* PeanoNat.Nat.eq_dec: forall n m : nat, {n = m} + {n <> m} *)
+      refine (if (PeanoNat.Nat.eq_dec a b) then Yes _ else No); simpl; subst.
+      erewrite _get_irrelevant.
       reflexivity.
     - rewrite denote_cons.
       refine (match (is_less a b) with
@@ -137,11 +175,25 @@ Module MakePreOrderTactic (T : HasPreOrder).
     end.
 
   Ltac preorder :=
+    quote_formula;
     match goal with
     | |- denote_formula ?c ?f => exact (partialOut (preorder_heuristic c f))
     end.
 
+  Lemma test : forall (x y z t : A), x < t -> y < z -> t < y -> x < z.
+  Proof.
+    intros.
+    preorder.
+  Qed.
+
 End MakePreOrderTactic.
+
+Lemma test2 : forall (x y z t : nat), x <= t -> y <= z -> t <= y -> x <= z.
+Proof.
+  intros.
+  preorder.
+Qed.
+
 
 Module Type SetTyp <: Typ.
   Parameter t : Set.
@@ -462,7 +514,7 @@ Module Types (VAlpha : VariableAlphabet).
       | H : ?x |- ?x => assumption
       | |- _ <> _ => intro H; now inversion H
       | |- isFilter _ => eapply Filter_isFilter; eassumption
-      | H : Omega <> Omega |- _ => exfalso; apply H; reflexivity
+      | H : Omega <> Omega |- _ => contradiction
 
       (* decomposition of ↑[ _] hypotheses *)
       | H : ↑[ _] (Inter _ _) |- _ => inversion H; clear H; subst; is_in_filter
