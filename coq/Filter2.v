@@ -98,7 +98,6 @@ Module Types (VAlpha : VariableAlphabet).
 
     (* Unlock all the preorder-related tactics for ≤ *)
     Instance Subtypes_Reflexive : Reflexive (≤) := R_Reflexive.
-    Hint Resolve Subtypes_Reflexive: SubtypeHints.
     Instance Subtypes_Transitive : Transitive (≤) := R_Transitive.
     Instance Subtypes_Preorder : PreOrder (≤) :=
       {| PreOrder_Reflexive := Subtypes_Reflexive;
@@ -146,6 +145,7 @@ Module Types (VAlpha : VariableAlphabet).
     Defined.
     Hint Resolve Inter_inf_dual : SubtypeHints.
 
+    (* Useless ??? *)
     Fact Inter_inf' : forall σ τ ρ, σ ≤ τ ∩ ρ -> (σ ≤ τ) /\ (σ ≤ ρ).
     Proof with auto with SubtypeHints.
       intros; split;
@@ -167,10 +167,12 @@ Module Types (VAlpha : VariableAlphabet).
     Defined.
     Hint Resolve Union_sup_dual : SubtypeHints.
 
+    (* Useless ??? *)
     Fact Union_sup' : forall σ τ ρ, σ ∪ τ ≤ ρ -> (σ ≤ ρ) /\ (τ ≤ ρ).
     Proof with auto with SubtypeHints.
       intros; split;
-        transitivity (σ ∪ τ)...
+        etransitivity;
+        try eassumption...
     Defined.
 
     Fact OmegaArrow : forall σ τ, ω ≤ τ -> ω ≤ σ → τ.
@@ -223,66 +225,69 @@ Module Types (VAlpha : VariableAlphabet).
       intros ? ? [? ?] ? ? [? ?]...
     Defined.
 
-    (* Unicode starts dying below this point *)
-
+    (* terms on which we'll define filters *)
     Unset Elimination Schemes.
     Inductive isFilter : term -> Prop :=
-    | OmegaisFilter : isFilter Omega
-    | VarisFilter : forall n, isFilter (Var n)
-    | ArrowisFilter : forall s t, isFilter (Arr s t)
-    | InterisFilter : forall s t, isFilter s -> isFilter t -> isFilter (Inter s t).
+    | OmegaisFilter : isFilter ω
+    | VarisFilter : forall α, isFilter (Var α)
+    | ArrowisFilter : forall σ τ, isFilter (σ → τ)
+    | InterisFilter : forall σ τ, isFilter σ -> isFilter τ -> isFilter (σ ∩ τ).
     Set Elimination Schemes.
 
+    (* The recursion scheme uses P ω as an inductive hypothesis *)
     Lemma isFilter_ind : forall P : term -> Prop,
         P ω ->
-        (forall n : 𝕍, P ω -> P (Var n)) ->
-        (forall s t : term, P ω -> P (s → t)) ->
-        (forall s t : term, isFilter s -> P s -> isFilter t -> P t -> P ω -> P (s ∩ t)) ->
-        forall t : term, isFilter t -> P t.
+        (forall α : 𝕍, P ω -> P (Var α)) ->
+        (forall σ τ : term, P ω -> P (σ → τ)) ->
+        (forall σ τ : term, isFilter σ -> P σ -> isFilter τ -> P τ -> P ω -> P (σ ∩ τ)) ->
+        forall σ : term, isFilter σ -> P σ.
     Proof.
-      intros P fO fV fA fI.
-      exact (fix foo t Ft : P t := match Ft in isFilter x return P x with
-                                   | OmegaisFilter => fO
-                                   | VarisFilter n => fV n fO
-                                   | ArrowisFilter s t => fA s t fO
-                                   | InterisFilter s t Fs Ft => fI s t Fs (foo s Fs) Ft (foo t Ft) fO
+      intros P fω fα fA fI.
+      exact (fix foo σ Fσ : P σ := match Fσ in isFilter σ return P σ with
+                                   | OmegaisFilter => fω
+                                   | VarisFilter α => fα α fω
+                                   | ArrowisFilter σ τ => fA σ τ fω
+                                   | InterisFilter σ τ Fσ Fτ => fI σ τ Fσ (foo σ Fσ) Fτ (foo τ Fτ) fω
                                    end).
     Defined.
+
+    (* Unicode starts dying below this point *)
 
     Reserved Notation "↑[ σ ] τ" (at level 65).
     Reserved Notation "↓[ σ ] τ" (at level 65).
     Inductive Filter : term -> term -> Prop :=
-    | ReflFilter : forall s, isFilter s -> Filter s s
-    | InterFilter : forall s t r, Filter s t -> Filter s r -> Filter s (Inter t r)
-    | UnionFilter1 : forall s t r, Filter s t -> Filter s (Union t r)
-    | UnionFilter2 : forall s t r, Filter s r -> Filter s (Union t r)
-    | ArrowFilter1 : forall s1 s2 t1 t2, s2 ≤ s1 -> t1 ≤ t2 -> Filter (Arr s1 t1) (Arr s2 t2)
-    | ArrowFilter2 : forall s1 s2 t1 t2 r1 r2, Filter (Inter s1 s2) (Arr t1 r1) -> t2 ≤ t1 -> r1 ≤ r2 -> Filter (Inter s1 s2) (Arr t2 r2)
-    | OmegaTopFilter : forall s t, isFilter s -> s <> Omega -> Filter Omega t -> Filter s t
-    | OmegaFilter : forall s t, Filter Omega t -> Filter Omega (Arr s t)
-    | InterRule1 : forall s1 s2 t, isFilter s2 -> Filter s1 t -> Filter (Inter s1 s2) t
-    | InterRule2 : forall s1 s2 t, isFilter s1 -> Filter s2 t -> Filter (Inter s1 s2) t
-    | InterArrowFilterInter : forall s1 s2 t r1 r2, Filter (Inter s1 s2) (Arr t r1) -> Filter (Inter s1 s2) (Arr t r2) -> Filter (Inter s1 s2) (Arr t (Inter r1 r2))
-    | InterArrowFilterUnion : forall s1 s2 t1 t2 r, Filter (Inter s1 s2) (Arr t1 r) -> Filter (Inter s1 s2) (Arr t2 r) -> Filter (Inter s1 s2) (Arr (Union t1 t2) r)
+    | F_Refl : forall σ, isFilter σ -> Filter σ σ
+    | F_Inter : forall σ t r, Filter σ t -> Filter σ r -> Filter σ (Inter t r)
+    | F_Union1 : forall σ t r, Filter σ t -> Filter σ (Union t r)
+    | F_Union2 : forall σ t r, Filter σ r -> Filter σ (Union t r)
+    | F_Arrow1 : forall σ1 σ2 t1 t2, σ2 ≤ σ1 -> t1 ≤ t2 -> Filter (Arr σ1 t1) (Arr σ2 t2)
+    | F_Arrow2 : forall σ1 σ2 t1 t2 r1 r2, Filter (Inter σ1 σ2) (Arr t1 r1) -> t2 ≤ t1 -> r1 ≤ r2 -> Filter (Inter σ1 σ2) (Arr t2 r2)
+    | F_OmegaTop : forall σ t, isFilter σ -> σ <> ω -> Filter ω t -> Filter σ t
+    | F_Omega : forall σ t, Filter ω t -> Filter ω (Arr σ t)
+    | F_Inter1 : forall σ1 σ2 t, isFilter σ2 -> Filter σ1 t -> Filter (Inter σ1 σ2) t
+    | F_Inter2 : forall σ1 σ2 t, isFilter σ1 -> Filter σ2 t -> Filter (Inter σ1 σ2) t
+    | F_ArrowInter : forall σ1 σ2 t r1 r2, Filter (Inter σ1 σ2) (Inter (Arr t r1) (Arr t r2)) -> Filter (Inter σ1 σ2) (Arr t (Inter r1 r2))
+    | F_ArrowUnion : forall σ1 σ2 t1 t2 r, Filter (Inter σ1 σ2) (Inter (Arr t1 r) (Arr t2 r)) -> Filter (Inter σ1 σ2) (Arr (Union t1 t2) r)
     where "↑[ σ ] τ" := (Filter σ τ).
 
     Create HintDb FilterHints.
     Hint Constructors Filter : FilterHints.
     Hint Constructors isFilter : FilterHints.
 
-    Lemma Filter_correct : forall s t, Filter s t -> s ≤ t.
-    Proof.
-      intros s t H.
-      induction H; auto with SubtypeHints.
-      - etransitivity; [eassumption|]; auto with SubtypeHints.
-      - transitivity Omega; auto with SubtypeHints.
-      - etransitivity; [|apply R_InterDistrib]; auto with SubtypeHints.
-      - etransitivity; [|apply R_UnionDistrib]; auto with SubtypeHints.
+    Lemma Filter_correct : forall σ t, Filter σ t -> σ ≤ t.
+    Proof with auto with SubtypeHints.
+      intros ? ? H.
+      induction H...
+      - etransitivity; [eassumption|]...
+      - transitivity ω...
+      - etransitivity; [|apply R_InterDistrib]...
+      - etransitivity; [|apply R_UnionDistrib]...
     Qed.
+    Hint Resolve Filter_correct : SubtypeHints.
 
     Lemma Filter_isFilter: forall s t, Filter s t -> isFilter s.
     Proof.
-      intros s t H; induction H; auto; constructor; auto.
+      intros ? ? H; induction H; auto; constructor; auto.
     Qed.
     Hint Resolve Filter_isFilter : FilterHints.
 
@@ -291,567 +296,126 @@ Module Types (VAlpha : VariableAlphabet).
       Hypothesis Fs : isFilter s.
 
       Lemma FilterInter : forall t r, Filter s (Inter t r) -> Filter s t /\ Filter s r.
-        intros; induction Fs; split.
-        - inversion H; subst; clear H. assumption.
-          contradiction.
-        - inversion H; subst; clear H. assumption.
-          contradiction.
-        - inversion H; subst; clear H. assumption.
-          apply OmegaTopFilter.
-          assumption.
-          assumption.
-          apply IHi.
-          constructor. (* isFilter constructor *)
-          assumption.
-        - inversion H; subst; clear H. assumption.
-          apply OmegaTopFilter.
-          assumption.
-          assumption.
-          apply IHi.
-          constructor. (* isFilter constructor *)
-          assumption.
-        - inversion H; subst; clear H. assumption.
-          apply OmegaTopFilter.
-          assumption.
-          assumption.
-          apply IHi.
-          constructor. (* isFilter constructor *)
-          assumption.
-        - inversion H; subst; clear H. assumption.
-          apply OmegaTopFilter.
-          assumption.
-          assumption.
-          apply IHi.
-          constructor. (* isFilter constructor *)
-          assumption.
-        - inversion H; subst; clear H.
-          apply InterRule1.
-          assumption.
-          apply ReflFilter.
-          assumption.
-          assumption.
-          + apply OmegaTopFilter.
-            assumption.
-            assumption.
-            apply IHi3.
-            constructor. (* isFilter constructor *)
-            assumption.
-          + apply InterRule1.
-            assumption.
-            apply IHi1.
-            eapply Filter_isFilter; eassumption.
-            assumption.
-          + apply InterRule2.
-            assumption.
-            apply IHi2.
-            eapply Filter_isFilter; eassumption.
-            assumption.
-        - inversion H; subst; clear H.
-          apply InterRule2.
-          assumption.
-          apply ReflFilter.
-          assumption.
-          assumption.
-          + apply OmegaTopFilter.
-            assumption.
-            assumption.
-            apply IHi3.
-            constructor. (* isFilter constructor *)
-            assumption.
-          + apply InterRule1.
-            assumption.
-            apply IHi1.
-            eapply Filter_isFilter; eassumption.
-            assumption.
-          + apply InterRule2.
-            assumption.
-            apply IHi2.
-            eapply Filter_isFilter; eassumption.
-            assumption.
+        intros ? ? H ; induction Fs; split; inversion H; clear H; subst;
+          auto with FilterHints;
+          lazymatch goal with
+          | H : ω <> ω |- _ => contradiction
+          (* Inductive case *)
+          | IH : _ -> ↑[ ?x] ?y ∩ ?z -> _, H : ↑[ ?x] ?y ∩ ?z |- ↑[ ?t] _ =>
+            (* cast t to x *)
+            lazymatch x with
+            | ω => apply F_OmegaTop
+            | _ => lazymatch t with
+                   | Inter x _ => apply F_Inter1
+                   | Inter _ x => apply F_Inter2
+                   end
+            end;
+              (* apply the inductive hypothesis *)
+              trivial; apply IH; trivial with FilterHints
+          end.
       Qed.
 
       Lemma FilterUnion : forall t r, Filter s (Union t r) -> Filter s t \/ Filter s r.
-        intros; induction Fs.
-        - inversion H; clear H; subst.
-          left; assumption.
-          right; assumption.
-          contradiction.
-        - inversion H; clear H; subst.
-          left; assumption.
-          right; assumption.
-          destruct (IHi OmegaisFilter H2).
-          left; apply OmegaTopFilter; assumption.
-          right; apply OmegaTopFilter; assumption.
-        - inversion H; clear H; subst.
-          left; assumption.
-          right; assumption.
-          destruct (IHi OmegaisFilter H2).
-          left; apply OmegaTopFilter; assumption.
-          right; apply OmegaTopFilter; assumption.
-        - inversion H; clear H; subst.
-          left; assumption.
-          right; assumption.
-          destruct (IHi3 OmegaisFilter H2).
-          left; apply OmegaTopFilter; assumption.
-          right; apply OmegaTopFilter; assumption.
-          destruct (IHi1 i1 H4).
-          left; apply InterRule1; assumption.
-          right; apply InterRule1; assumption.
-          destruct (IHi2 i2 H4).
-          left; apply InterRule2; assumption.
-          right; apply InterRule2; assumption.
+        intros ? ? H; induction Fs; inversion H; clear H; subst; auto;
+          lazymatch goal with
+          | H : ω <> ω |- _ => contradiction
+          (* Inductive case *)
+          | IH : _ -> ↑[ ?x] ?y ∪ ?z -> ?p, H : ↑[ ?x] ?y ∪ ?z |- ↑[ ?t] ?y \/ ↑[ ?t] ?z =>
+            (* apply the inductive hypothesis *)
+            assert (H' : p) by (apply IH; trivial with FilterHints); destruct H'; [left|right];
+              (* cast t to x *)
+              lazymatch x with
+              | ω => apply F_OmegaTop
+              | _ => lazymatch t with
+                     | Inter x _ => apply F_Inter1
+                     | Inter _ x => apply F_Inter2
+                     end
+              end; assumption
+          end.
       Qed.
     End Filter.
 
+    Search (Subtype ?x (Inter ?y ?z) -> Subtype ?x ?y /\ Subtype ?x ?z).
+    Check Inter_inf.
+
+    Ltac is_subtype :=
+      repeat lazymatch goal with
+             (* second step: decompose the goal *)
+             | |- ?σ ≤ ?τ ∩ ?ρ => apply Inter_inf
+             | |- ?σ ∪ ?τ ≤ ?ρ => apply Union_sup
+             | |- ?σ ≤ ω => apply R_OmegaTop
+             | |- Arr _ _ ≤ Arr _ _ => apply R_CoContra
+             (* third step: rewrite all the omega equalities *)
+             | H : ω ≤ _ |- _ => try rewrite <- H; clear H
+             (* final step *)
+             | |- _ => preorder
+             end.
+
+    Ltac foo :=
+      match goal with
+      (* trivial cases *)
+      | H : ?x |- ?x => assumption
+      | H : ω <> ω |- _ => contradiction
+      | |- _ <> _ => discriminate
+      | H : Filter ?x _ |- isFilter ?x => apply (Filter_isFilter _ _ H)
+      | |- Filter ω ω => apply F_Refl; constructor
+
+      (* destruct the hypothesis *)
+      | H : Filter ω (Arr _ _) |- _ => inversion H; clear H; subst; foo
+      | H : Filter (Arr _ _) (Arr _ _) |- _ => inversion H; clear H; subst; foo
+      | H : Filter (Var _) (Arr _ _) |- _ => inversion H; clear H; subst; foo
+      | H : Filter _ (Union _ _) |- _ => apply FilterUnion in H; destruct H; foo
+      | H : ↑[ ?s ∩ ?t] Inter (?τ → _) (?τ → _) |- _ =>
+        apply F_ArrowInter in H; foo
+      | H : ↑[ ?s ∩ ?t] Inter (_ → ?τ) (_ → ?τ) |- _ =>
+        apply F_ArrowUnion in H; foo
+      | H : Filter _ (Inter _ _) |- _ => apply FilterInter in H; destruct H; foo
+      | H : isFilter ?x |- _ => match x with
+                                | context [Union] => inversion H; foo
+                                end
+      (* for the Inter hypotheses, cast the Arrow up *)
+      | H : ↑[ ?x ∩ ?y ] ?t1 → ?r1, H1 : ?t2 ≤ ?t1, H2 : ?r1 ≤ ?r2
+        |- ↑[ ?x ∩ ?y ] _ =>
+        assert (↑[ x ∩ y ] t2 → r2) by (apply (F_Arrow2 x y t1 t2 r1 r2 H H1 H2)); clear H; foo
+      | IH : (forall t1 t2, ↑[?x] _ -> _), H : ↑[ ?x ] ?t1 → ?r1, H1 : ?t2 ≤ ?t1, H2 : ?r1 ≤ ?r2
+        |- ↑[ ?x ∩ ?y ] _ =>
+        assert (↑[ x ] t2 → r2) by (apply (IH (Arr t1 r1) _ H); is_subtype); clear H; foo
+      | IH : (forall t1 t2, ↑[?y] _ -> _), H : ↑[ ?y ] ?t1 → ?r1, H1 : ?t2 ≤ ?t1, H2 : ?r1 ≤ ?r2
+        |- ↑[ ?x ∩ ?y ] _ =>
+        assert (↑[ y ] t2 → r2) by (apply (IH (Arr t1 r1) _ H); is_subtype); clear H; foo
+
+      (* destruct the goal *)
+      | |- isFilter _ => constructor; foo
+      | |- Filter _ ω => apply F_OmegaTop; foo
+      | |- Filter _ (Inter _ _) => apply F_Inter; foo
+      | |- Filter (Inter _ _) (Arr ω ω) => apply F_OmegaTop; foo
+      | |- Filter ω (Arr _ _) => apply F_Omega; foo
+
+      (* Final step: induction *)
+      | IH : (forall a b, ↑[ ?x] a -> a ≤ b -> _), le_H : ?a ≤ ?b, H : ↑[ ?x] ?a |- ↑[ ?t] ?b =>
+        lazymatch x with
+        | ω => apply F_OmegaTop
+        | _ => lazymatch t  with
+               | Inter x _ => apply F_Inter1
+               | Inter _ x => apply F_Inter2
+               end
+        end; trivial with FilterHints; apply (IH a b H le_H)
+      (* Inductive case where the goal is Filter a (Arr b c), and c is omega *)
+      | IH : (forall a b, ↑[ ω] a -> a ≤ b -> _), le_H : ?a ≤ ?b, H : ↑[ ω] ?a |- ↑[ ?t] Arr _ ?b =>
+        apply F_OmegaTop; trivial with FilterHints; apply F_Omega; apply (IH a b H le_H)
+      (* All the other cases for Arrow *)
+      | |- Filter (Arr _ _) (Arr _ _) => auto with FilterHints; constructor; auto with SubtypeHints;
+                                         repeat match goal with
+                                                | H : Filter ω _ |- _ => apply (Filter_correct _ _) in H
+                                                end; is_subtype
+      | _ => auto with FilterHints
+      end.
+
     Lemma Filter_complete : forall s, isFilter s -> forall t1 t2, Filter s t1 -> t1 ≤ t2 -> Filter s t2.
     Proof.
-      intros s Fs; induction Fs; intros t1 t2 H1 H2.
-      - induction H2; inversion H1; clear H1; subst;
-        repeat match goal with
-               | H : ?x |- ?x => assumption
-               | H : Omega <> Omega |- _ => contradiction
-               | H : Filter ?x _ |- isFilter ?x => apply (Filter_isFilter _ _ H)
-               | |- Filter _ (Inter _ _) => apply InterFilter
-               | |- Filter Omega (Arr _ _) => apply OmegaFilter
-               | H : Filter Omega (Arr _ _) |- _ => inversion H; clear H; subst
-               | H : Filter _ (Union _ _) |- _ => apply FilterUnion in H; destruct H
-               | _ => auto with FilterHints
-               end.
-      - induction H2; inversion H1; clear H1; subst;
-          repeat match goal with
-               | H : ?x |- ?x => assumption
-               | H : Omega <> Omega |- _ => contradiction
-               | |- _ <> _ => discriminate
-               | H : Filter ?x _ |- isFilter ?x => apply (Filter_isFilter _ _ H)
-               | |- isFilter _ => constructor
-               | |- Filter _ Omega => first [apply ReflFilter|apply OmegaTopFilter]
-               | |- Filter _ (Inter _ _) => apply InterFilter
-               | |- Filter Omega (Arr _ _) => apply OmegaFilter
-               | H : Filter Omega (Arr _ _) |- _ => inversion H; clear H; subst
-               | H : Filter (Var _) (Arr _ _) |- _ => inversion H; clear H; subst
-               | H : Filter _ (Union _ _) |- _ => apply FilterUnion in H; destruct H
-               | H : Filter _ (Inter _ _) |- _ => apply FilterInter in H; destruct H
-               | _ => auto with FilterHints
-                 end.
-        apply OmegaTopFilter.
-        assumption.
-        assumption.
-        apply OmegaFilter.
-        eapply IHFs; eassumption.
-      - induction H2; inversion H1; clear H1; subst;
-          repeat match goal with
-               | H : ?x |- ?x => assumption
-               | H : Omega <> Omega |- _ => contradiction
-               | |- _ <> _ => discriminate
-               | H : Filter ?x _ |- isFilter ?x => apply (Filter_isFilter _ _ H)
-               | |- isFilter _ => constructor
-               | |- Filter _ Omega => first [apply ReflFilter|apply OmegaTopFilter]
-               | |- Filter _ (Inter _ _) => apply InterFilter
-               | |- Filter Omega (Arr _ _) => apply OmegaFilter
-               | H : Filter Omega (Arr _ _) |- _ => inversion H; clear H; subst
-               | H : Filter (Var _) (Arr _ _) |- _ => inversion H; clear H; subst
-               | H : Filter _ (Union _ _) |- _ => apply FilterUnion in H; destruct H
-               | H : Filter _ (Inter _ _) |- _ => apply FilterInter in H; destruct H
-               | _ => auto with FilterHints
-                 end.
-        + inversion H3; inversion H4; subst; clear H3; clear H4.
-          apply ArrowFilter1; auto with SubtypeHints.
-          apply ArrowFilter1; auto with SubtypeHints.
-          inversion H7; subst; clear H7.
-          contradiction.
-          apply Filter_correct in H2.
-          apply ArrowFilter1; auto with SubtypeHints.
-          rewrite <- H2. auto with SubtypeHints.
-          apply ArrowFilter1; auto with SubtypeHints.
-          apply ArrowFilter1; auto with SubtypeHints.
-          inversion H9; subst; clear H9.
-          contradiction.
-          apply Filter_correct in H1.
-          apply ArrowFilter1; auto with SubtypeHints.
-          rewrite <- H1. auto with SubtypeHints.
-          inversion H1; subst; clear H1.
-          contradiction.
-          apply Filter_correct in H4.
-          apply ArrowFilter1; auto with SubtypeHints.
-          rewrite <- H4. auto with SubtypeHints.
-          apply ArrowFilter1; auto with SubtypeHints.
-          inversion H1; clear H1; subst.
-          contradiction.
-          apply Filter_correct in H4.
-          rewrite <- H4. auto with SubtypeHints.
-          inversion H8; subst; clear H8.
-          contradiction.
-          inversion H1; subst; clear H1.
-          contradiction.
-          apply OmegaTopFilter.
-          assumption.
-          assumption.
-          auto with FilterHints.
-        + inversion H3; inversion H4; subst; clear H3; clear H4.
-          apply ArrowFilter1; auto with SubtypeHints.
-          apply ArrowFilter1; auto with SubtypeHints.
-          inversion H7; subst; clear H7.
-          contradiction.
-          apply OmegaTopFilter.
-          assumption.
-          assumption.
-          auto with FilterHints.
-          apply ArrowFilter1; auto with SubtypeHints.
-          apply ArrowFilter1; auto with SubtypeHints.
-          inversion H9; subst; clear H9.
-          contradiction.
-          apply OmegaTopFilter.
-          assumption.
-          assumption.
-          auto with FilterHints.
-          inversion H1; subst; clear H1.
-          contradiction.
-          apply OmegaTopFilter.
-          assumption.
-          assumption.
-          auto with FilterHints.
-          inversion H1; subst; clear H1.
-          contradiction.
-          apply OmegaTopFilter.
-          assumption.
-          assumption.
-          auto with FilterHints.
-          inversion H8; subst; clear H8.
-          contradiction.
-          apply OmegaTopFilter.
-          assumption.
-          assumption.
-          auto with FilterHints.
-        + apply ArrowFilter1; preorder.
-        + apply OmegaTopFilter.
-          assumption.
-          assumption.
-          apply OmegaFilter.
-          eapply IHFs; eassumption.
-      - induction H2; inversion H1; clear H1; subst;
-          repeat match goal with
-                 | H : ?x |- ?x => assumption
-                 | H : Omega <> Omega |- _ => contradiction
-                 | |- _ <> _ => discriminate
-                 | H : Filter ?x _ |- isFilter ?x => apply (Filter_isFilter _ _ H)
-                 | |- isFilter _ => constructor
-                 | |- Filter _ Omega => first [apply ReflFilter|apply OmegaTopFilter]
-                 | |- Filter _ (Inter _ _) => apply InterFilter
-                 | |- Filter Omega (Arr _ _) => apply OmegaFilter
-                 | H : Filter Omega (Arr _ _) |- _ => inversion H; clear H; subst
-                 | H : Filter (Var _) (Arr _ _) |- _ => inversion H; clear H; subst
-                 | H : Filter _ (Union _ _) |- _ => apply FilterUnion in H; destruct H
-                 | H : Filter _ (Inter _ _) |- _ => apply FilterInter in H; destruct H
-                 | _ => auto with FilterHints
-                 end; eauto with FilterHints.
-        inversion H2. inversion H3.
-        apply OmegaTopFilter.
-        constructor.
-        eapply Filter_isFilter; eassumption.
-        assumption.
-        discriminate.
-        auto with FilterHints.
-        apply OmegaTopFilter.
-        constructor.
-        assumption.
-        eapply Filter_isFilter; eassumption.
-        discriminate.
-        auto with FilterHints.
+      intros ? Fs; induction Fs; intros ? ? H1 H2;
+        induction H2; inversion H1; clear H1; subst; foo.
     Qed.
-
-    Ltac is_omega :=
-      auto;
-      lazymatch goal with
-      (* Trivial goal *)
-      | H : ?x <> ?x |- _ => contradiction
-
-      (* Decomposition of ↑[ _] hypotheses *)
-      | H : ↑[ _] (_ _ _) |- _ => inversion H; clear H; subst; is_omega
-
-      (* auto *)
-      | |- _ => auto with FilterHints
-      end.
-
-    Lemma Filter_omega : forall s t, Filter Omega s -> s ≤ t -> Filter Omega t.
-    Proof.
-      intros s t Fos lst.
-      induction lst;
-        is_omega.
-    Qed.
-    Hint Resolve Filter_omega: FilterHints.
-
-    Ltac is_in_filter :=
-      auto;
-      lazymatch goal with
-      (* trivial goals *)
-      | |- _ <> _ => discriminate
-      | H : ?x <> ?x |- _ => contradiction
-      | |- isFilter _ => eapply Filter_isFilter; eassumption
-
-      (* security *)
-      | |- ↑[ Omega] _ => eauto with FilterHints SubtypeHints
-
-      (* decomposition of ↑[ _] hypotheses *)
-      | H : ↑[ ?r] (?R _ _) |- ↑[ (Inter ?s ?t)] _ => idtac
-(*        match r with
-        | s => lazymatch R with
-               | Inter => apply InterRule1; is_in_filter
-               | Union => apply InterRule1; is_in_filter
-               end
-        | t => lazymatch R with
-               | Inter => apply InterRule2; is_in_filter
-               | Union => apply InterRule2; is_in_filter
-               end
-        | _ => inversion H; clear H; subst; is_in_filter
-        end *)
-      | H : ↑[ _] (_ _ _) |- _ => inversion H; clear H; subst; is_in_filter
-
-      (* decomposition of the goal *)
-      | |- ↑[ _] (Inter _ _) => apply InterFilter; is_in_filter
-      | |- ↑[ _] (Union _ _) => solve [apply UnionFilter1; is_in_filter
-                                      |apply UnionFilter2; is_in_filter]
-
-      (* coerce to Omega *)
-      | |- ↑[ _] Omega => apply OmegaTopFilter; is_in_filter
-      | |- ↑[ (Var _)] (Arr _ _) => apply OmegaTopFilter; is_in_filter
-      (* Arrow *)
-      | |- ↑[ (Arr _ _)] (Arr _ _) => solve [apply ArrowFilter; is_in_filter
-                                              |apply OmegaTopFilter; is_in_filter]
-
-      (* subtyping *)
-      | |- _ ≤ _ =>
-        repeat lazymatch goal with
-               (* first step: get subtyping hypotheses *)
-               | H : ↑[ ?s] ?t |- _ => assert (s ≤ t) by (apply Filter_correct; assumption);
-                                       clear H
-               (* second step: decompose the goal *)
-               | |- ?σ ≤ ?τ ∩ ?ρ => apply Inter_inf
-               | |- ?σ ∪ ?τ ≤ ?ρ => apply Union_sup
-               | |- ?σ ≤ Omega => apply R_OmegaTopFilter
-               (* third step: rewrite all the omega equalities *)
-               | H : Omega ≤ _ |- _ => try rewrite <- H; clear H
-               (* final step *)
-               | |- _ => preorder
-               end
-
-      (* welp *)
-      | |- ↑[ _] _ => eauto with FilterHints
-      | _ => idtac
-      end.
-
-    Lemma Filter_var : forall n s t, Filter (Var n) s -> s ≤ t -> Filter (Var n) t.
-    Proof.
-      intros n s t Fos lst.
-      induction lst;
-        is_in_filter.
-    Qed.
-
-    Lemma Filter_arrow : forall s t r1 r2, Filter (Arr s t) r1 -> r1 ≤ r2 -> Filter (Arr s t) r2.
-    Proof.
-      intros s t r1 r2 Fos lst.
-      induction lst;
-        is_in_filter.
-    Qed.
-
-    Lemma Inter_arrow : forall s, isFilter s -> forall t1 t2, Filter s t1 -> t1 ≤ t2 -> Filter s t2.
-    Proof. (* todo: induction on inter size *)
-      intros s iFs.
-      induction iFs; intros t1 t2 Fos lst.
-      - induction lst; is_in_filter.
-      - induction lst; is_in_filter.
-      - eapply Filter_omega; eassumption.
-      - induction lst; is_in_filter.
-        + inversion Fos; clear Fos; subst; is_in_filter.
-          apply OmegaTopFilter; is_in_filter.
-          apply InterRule1; is_in_filter.
-          * eapply IHiFs1.
-            apply InterRule1.
-            assumption.
-            eassumption.
-            auto with SubtypeHints.
-          * eapply IHiFs1.
-            apply InterRule2.
-            assumption.
-            eassumption.
-            auto with SubtypeHints.
-          * apply InterRule2.
-            assumption.
-            eapply IHiFs2.
-            eassumption.
-            auto with SubtypeHints.
-        + inversion Fos; clear Fos; subst; is_in_filter.
-          apply OmegaTopFilter; is_in_filter.
-          * apply InterRule1.
-            assumption.
-            eapply IHiFs1.
-            eassumption.
-            auto with SubtypeHints.
-          * apply InterRule2.
-            assumption.
-            eapply IHiFs2.
-            eassumption.
-            auto with SubtypeHints.
-        + inversion Fos; clear Fos; subst; is_in_filter.
-          apply OmegaTopFilter; is_in_filter.
-          * apply InterRule1.
-            assumption.
-            eapply IHiFs1.
-            eassumption.
-            auto with SubtypeHints.
-          * apply InterRule2.
-            assumption.
-            eapply IHiFs2.
-            eassumption.
-            auto with SubtypeHints.
-        + auto with FilterHints.
-        + auto with FilterHints.
-        + inversion Fos; subst; clear Fos.
-          auto with FilterHints.
-          apply OmegaTopFilter; is_in_filter.
-          * apply InterRule1.
-            assumption.
-            eapply IHiFs1.
-            eassumption.
-            auto with SubtypeHints.
-          * apply InterRule2.
-            assumption.
-            eapply IHiFs2.
-            eassumption.
-            auto with SubtypeHints.
-        + inversion Fos; subst; clear Fos.
-          auto with FilterHints.
-          auto with FilterHints.
-          apply OmegaTopFilter; is_in_filter.
-          * apply InterRule1.
-            assumption.
-            eapply IHiFs1.
-            eassumption.
-            auto with SubtypeHints.
-          * apply InterRule2.
-            assumption.
-            eapply IHiFs2.
-            eassumption.
-            auto with SubtypeHints.
-        + inversion Fos; subst; clear Fos.
-          * inversion H3; subst; clear H3.
-            auto with FilterHints.
-            auto with FilterHints.
-            inversion H1; subst; clear H1.
-            is_in_filter.
-            is_in_filter.
-            is_in_filter.
-            inversion H2; subst; clear H2.
-`
-          apply OmegaTopFilter; is_in_filter.
-          * apply InterRule1.
-            assumption.
-            eapply IHiFs1.
-            eassumption.
-            auto with SubtypeHints.
-          * apply InterRule2.
-            assumption.
-            eapply IHiFs2.
-            eassumption.
-            auto with SubtypeHints.
-        +
-
-        + inversion H; clear H; subst; is_in_filter.
-          apply OmegaTopFilter; is_in_filter.
-          apply InterRule1; is_in_filter.
-          apply InterRule2; is_in_filter.
-        + inversion H; clear H; subst; is_in_filter.
-          apply OmegaTopFilter; is_in_filter.
-          apply InterRule1; is_in_filter.
-          apply InterRule2; is_in_filter.
-        + apply InterArrowFilterInter.
-          is_in_filter.
-        + apply InterArrowFilterUnion.
-          is_in_filter.
-        + inversion H; clear H; subst; is_in_filter.
-          apply OmegaTopFilter; is_in_filter.
-          apply InterRule1; is_in_filter.
-          apply InterRule2; is_in_filter.
-
-
-
-
-
-
-          
-      - is_in_filter.
-      - is_in_filter.
-      - is_in_filter.
-      - is_in_filter.
-      - is_in_filter.
-      - is_in_filter.
-      - is_in_filter.
-      - is_in_filter.
-      - is_in_filter.
-      - is_in_filter.
-      - is_in_filter.
-      - is_in_filter.
-      - induction lst.
-        + inversion Fos; clear Fos; subst.
-          * is_in_filter. (* assumption *)
-          * is_in_filter.
-          * apply InterRule1; (* !!!!!! *)
-              is_in_filter.
-          * apply InterRule2; (* !!!!!! *)
-              is_in_filter.
-        + inversion Fos; clear Fos; subst.
-          * is_in_filter. (* assumption *)
-          * is_in_filter. (* Omega_Top *)
-          * apply InterRule1; (* !!!!!! *)
-              is_in_filter. (* idea: don't destroy inter/union in assumption if it's about a non-inter and the goal is an inter *)
-          * apply InterRule2; (* !!!!!! *)
-              is_in_filter.
-        + is_in_filter.
-        + is_in_filter.
-        + is_in_filter.
-        + inversion Fos; clear Fos; subst.
-          * is_in_filter. (* assumption *)
-          * is_in_filter. (* assumption *)
-          * is_in_filter. (* OmegaTop *)
-          * apply InterRule1; (* !!!!!! *)
-              is_in_filter. (* idea: don't destroy inter/union in assumption if it's about a non-inter and the goal is an inter *)
-          * apply InterRule2; (* !!!!!! *)
-              is_in_filter.
-        + inversion Fos; clear Fos; subst.
-          * auto with FilterHints. (* arrowinter distrib *) (* !!!!!!! *)
-          * is_in_filter. (* OmegaTop *)
-          * apply InterRule1; (*!!!!!!!*)
-            is_in_filter.
-          * apply InterRule2; (*!!!!!!*)
-              is_in_filter.
-        + inversion Fos; clear Fos; subst.
-          * auto with FilterHints. (* arrowunion distrib *) (* !!!!!!! *)
-          * is_in_filter. (* OmegaTop *)
-          * apply InterRule1; (*!!!!!!!*)
-            is_in_filter.
-          * apply InterRule2; (*!!!!!!*)
-              is_in_filter.
-        + inversion Fos; clear Fos; subst.
-          * is_in_filter.
-      is_in_filter.
-      is_in_filter.
-      is_in_filter.
-      is_in_filter.
-      is_in_filter.
-      is_in_filter.
-      is_in_filter.
-      is_in_filter.
-      is_in_filter.
-      is_in_filter.
-      is_in_filter.
-      is_in_filter.
-      is_in_filter.
-      is_in_filter.
-      is_in_filter.
-      is_in_filter.
-      is_in_filter.
-      is_in_filter.
-    Qed.
-
 
     Inductive Ideal : term -> -> term -> Prop :=
     | InterIdeal1 : forall s t r, Ideal s t -> Ideal s (Inter t r)
