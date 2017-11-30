@@ -16,10 +16,12 @@ Import NArith.
 Import NZAddOrder.
 Import Coq.Arith.Peano_dec.
 Require Import Omega.
-
+Require Import Wellfounded.
+Require Extraction.
 
 Require PreOrderTactic.
 Ltac preorder := PreOrderTactic.preorder.
+Ltac inv H := inversion H; clear H; subst.
 
 (* Dummy module type *)
 Module Type SetTyp <: Typ.
@@ -322,7 +324,7 @@ Module Types (VAlpha : VariableAlphabet).
       Hypothesis Fσ : isFilter σ.
 
       Lemma FilterInter : forall τ ρ, ↑[σ] τ ∩ ρ -> ↑[σ] τ /\ ↑[σ] ρ.
-        intros ? ? H ; induction Fσ; split; inversion H; clear H; subst;
+        intros ? ? H ; induction Fσ; split; inv H;
           auto with FilterHints;
           lazymatch goal with
           | H : ω <> ω |- _ => contradiction
@@ -336,7 +338,7 @@ Module Types (VAlpha : VariableAlphabet).
       Qed.
 
       Lemma FilterUnion : forall τ ρ, ↑[σ] τ ∪ ρ -> ↑[σ] τ \/ ↑[σ] ρ.
-        intros ? ? H; induction Fσ; inversion H; clear H; subst; auto;
+        intros ? ? H; induction Fσ; inv H; auto;
           lazymatch goal with
           | H : ω <> ω |- _ => contradiction
           (* Inductive case *)
@@ -359,27 +361,23 @@ Module Types (VAlpha : VariableAlphabet).
         | |- ↑[ω] ω => apply F_Refl; constructor
 
         (* Destruct the hypothesis *)
-        | H : ↑[ω] _ → _ |- _ => inversion H; clear H; subst; filter_closed
-        | H : ↑[_ → _] _ → _ |- _ => inversion H; clear H; subst; filter_closed
-        | H : ↑[Var _] _ → _ |- _ => inversion H; clear H; subst; filter_closed
+        | H : ↑[ω] _ → _ |- _ => inv H; filter_closed
+        | H : ↑[_ → _] _ → _ |- _ => inv H; filter_closed
+        | H : ↑[Var _] _ → _ |- _ => inv H; filter_closed
         | H : ↑[_] _ ∪ _ |- _ => apply FilterUnion in H; destruct H; filter_closed
         | H : ↑[?σ ∩ ?τ] (?ρ → _) ∩ (?ρ → _) |- _ => apply F_ArrowInter in H; filter_closed
         | H : ↑[?σ ∩ ?τ] (_ → ?ρ) ∩ (_ → ?ρ) |- _ => apply F_ArrowUnion in H; filter_closed
         | H : ↑[_] _ ∩ _ |- _ => apply FilterInter in H; destruct H; filter_closed
         | H : isFilter ?σ |- _ => match σ with (* Absurd hypothesis *)
-                                  | context [(∪)] => inversion H; filter_closed
+                                  | context [(∪)] => inv H; filter_closed
                                   end
-        (* For proving ↑[σ1 ∩ σ2], cast the (→) up in the hypotheses *)
+        (* Cast the (→) up in the hypotheses *)
+        | IH : (forall τ1 τ2, ↑[?σ] _ -> _), H : ↑[?σ] ?τ1 → ?ρ1, H1 : ?τ2 ≤ ?τ1, H2 : ?ρ1 ≤ ?ρ2
+          |- _ =>
+          assert (↑[σ] τ2 → ρ2) by (apply (IH (τ1 → ρ1) _ H); is_subtype_heuristic);
+          clear H; filter_closed
         | H : ↑[?σ1 ∩ ?σ2] ?τ1 → ?ρ1, H1 : ?τ2 ≤ ?τ1, H2 : ?ρ1 ≤ ?ρ2 |- ↑[?σ1 ∩ ?σ2] _ =>
           assert (↑[σ1 ∩ σ2] τ2 → ρ2) by (apply (F_Arrow2 σ1 σ2 τ1 τ2 ρ1 ρ2 H H1 H2));
-          clear H; filter_closed
-        | IH : (forall τ1 τ2, ↑[?σ1] _ -> _), H : ↑[?σ1] ?τ1 → ?ρ1, H1 : ?τ2 ≤ ?τ1, H2 : ?ρ1 ≤ ?ρ2
-          |- ↑[?σ1 ∩ ?σ2] _ =>
-          assert (↑[σ1] τ2 → ρ2) by (apply (IH (τ1 → ρ1) _ H); is_subtype_heuristic);
-          clear H; filter_closed
-        | IH : (forall τ1 τ2, ↑[?σ2] _ -> _), H : ↑[?σ2] ?τ1 → ?ρ1, H1 : ?τ2 ≤ ?τ1, H2 : ?ρ1 ≤ ?ρ2
-          |- ↑[?σ1 ∩ ?σ2] _ =>
-          assert (↑[σ2] τ2 → ρ2) by (apply (IH (τ1 → ρ1) _ H); is_subtype_heuristic);
           clear H; filter_closed
 
         (* Destruct the goal *)
@@ -408,7 +406,7 @@ Module Types (VAlpha : VariableAlphabet).
       Lemma Filter_closed : forall σ, isFilter σ -> forall τ1 τ2, ↑[σ] τ1 -> τ1 ≤ τ2 -> ↑[σ] τ2.
       Proof.
         intros ? Fσ; induction Fσ; intros ? ? H1 H2;
-          induction H2; inversion H1; clear H1; subst; filter_closed.
+          induction H2; inv H1; filter_closed.
       Qed.
     End Filter_closed.
 
@@ -420,58 +418,21 @@ Module Types (VAlpha : VariableAlphabet).
 
     (* Unicode starts dying below this point *)
 
-    Inductive Combine (U : term -> term -> term) (P : term -> Prop) : term -> Prop :=
-    | C_nil : forall σ, P σ -> Combine U P σ
-    | C_cons : forall σ τ, Combine U P σ -> Combine U P τ -> Combine U P (U σ τ).
+    Inductive Generalize (c : term -> term -> term) (P : term -> Prop) : term -> Prop :=
+    | G_nil : forall σ, P σ -> Generalize c P σ
+    | G_cons : forall σ τ, Generalize c P σ -> Generalize c P τ -> Generalize c P (c σ τ).
+
+    (* Notations: [ ⋂ P ] x == x is a generalized intersection of terms verifying P *)
+    Notation "[ ⋂ P ]" := (Generalize (∩) P).
+    Notation "[ ⋃ P ]" := (Generalize (∪) P).
 
     Inductive ANF : term -> Prop :=
     | VarisANF : forall α, ANF (Var α)
-    | ArrowisANF : forall σ τ, Combine Inter ANF σ -> Combine Union ANF τ -> ANF (σ → τ)
-    | ArrowisANF' : forall σ, Combine Union ANF σ -> ANF (ω → σ).
+    | ArrowisANF : forall σ τ, [⋂ ANF] σ -> [⋃ ANF] τ -> ANF (σ → τ)
+    | ArrowisANF' : forall τ, [⋃ ANF] τ -> ANF (ω → τ).
 
-    Definition CANF (σ : term) : Prop := σ = ω \/ Combine Inter (Combine Union ANF) σ.
-    Definition DANF (σ : term) : Prop := σ = ω \/ Combine Union (Combine Inter ANF) σ.
-
-    (* First rewriting function: do Omega-related simplifications *)
-    Fixpoint deleteOmega (s : term) : term :=
-      match s with
-      | s → t => let s := deleteOmega s in
-                 let t := deleteOmega t in
-                 match t with
-                 | Omega => ω
-                 | _ => (s → t)
-                 end
-      | s ∩ t => let s := deleteOmega s in
-                 let t := deleteOmega t in
-                 match s with
-                 | Omega => t
-                 | _ => match t with
-                        | Omega => s
-                        | _ => s ∩ t
-                        end
-                 end
-      | s ∪ t => let s := deleteOmega s in
-                 let t := deleteOmega t in
-                 match s with
-                 | Omega => ω
-                 | _ => match t with
-                        | Omega => ω
-                        | _ => s ∪ t
-                        end
-                 end
-      | _ => s
-      end.
-
-    Lemma deleteOmega_equiv : forall s, deleteOmega s ~= s.
-    Proof.
-      induction s as [?| s1 e1 s2 e2 | s1 e1 s2 e2 | s1 e1 s2 e2 | ];
-        auto with SubtypeHints;
-        simpl;
-        destruct (deleteOmega s2), (deleteOmega s1);
-        rewrite <- e1;
-        rewrite <- e2;
-        auto with SubtypeHints.
-    Qed.
+    Definition CANF (σ : term) : Prop := σ = ω \/ [⋂ [⋃ ANF]] σ.
+    Definition DANF (σ : term) : Prop := σ = ω \/ [⋃ [⋂ ANF]] σ.
 
     Inductive Omega_free : term -> Prop :=
     | Of_Var : forall α, Omega_free (Var α)
@@ -480,106 +441,219 @@ Module Types (VAlpha : VariableAlphabet).
     | Of_Arrow1 : forall σ, Omega_free σ -> Omega_free (Arr ω σ)
     | Of_Arrow2 : forall σ τ, Omega_free σ -> Omega_free τ -> Omega_free (Arr σ τ).
 
-    Lemma deleteOmega_Omega : forall s, s ~= Omega -> deleteOmega s = Omega.
+    Create HintDb FreeHints.
+    Hint Constructors Omega_free : FreeHints.
+
+    (* Rewriting functions *)
+
+    (* First rewriting function: do Omega-related simplifications *)
+    Fixpoint deleteOmega (σ : term) : term :=
+      match σ with
+      | σ → τ => let σ := deleteOmega σ in
+                 let τ := deleteOmega τ in
+                 match τ with
+                 | Omega => ω
+                 | _ => (σ → τ)
+                 end
+      | σ ∩ τ => let σ := deleteOmega σ in
+                 let τ := deleteOmega τ in
+                 match σ with
+                 | Omega => τ
+                 | _ => match τ with
+                        | Omega => σ
+                        | _ => σ ∩ τ
+                        end
+                 end
+      | σ ∪ τ => let σ := deleteOmega σ in
+                 let τ := deleteOmega τ in
+                 match σ with
+                 | Omega => ω
+                 | _ => match τ with
+                        | Omega => ω
+                        | _ => σ ∪ τ
+                        end
+                 end
+      | _ => σ
+      end.
+
+    Lemma deleteOmega_equiv : forall σ, deleteOmega σ ~= σ.
     Proof.
-      intros s [_H H]; clear _H.
+      induction σ as [|σ1 e1 σ2 e2|σ1 e1 σ2 e2|σ1 e1 σ2 e2|];
+        auto with SubtypeHints; simpl;
+          (* Inductive cases *)
+          destruct (deleteOmega σ2), (deleteOmega σ1);
+          rewrite <- e1; rewrite <- e2;
+            auto with SubtypeHints.
+    Qed.
+
+    Lemma deleteOmega_Omega : forall σ, σ ~= Omega -> deleteOmega σ = Omega.
+    Proof.
+      intros σ [_ H].
       apply Filter_complete in H; trivial with FilterHints.
-      induction s.
-      - inversion H; subst; clear H.
-        contradiction.
-      - inversion H; subst; clear H.
-        contradiction.
-        simpl.
-        rewrite IHs2; trivial.
-      - inversion H; subst; clear H.
-        simpl.
-        rewrite IHs1; trivial.
-        rewrite IHs2; trivial.
-        contradiction.
-      - inversion H; subst; clear H.
-        simpl.
-        rewrite IHs1; trivial.
-        simpl.
-        rewrite IHs2; trivial.
-        destruct (deleteOmega s1); trivial.
-        contradiction.
-      - reflexivity.
+      induction σ; inv H; trivial; try contradiction; simpl;
+        (* rewrite the induction hypotheses *)
+        repeat match goal with
+               | IH : ?x -> _, H : ?x |- _ => rewrite IH; trivial; clear H IH
+               end.
+      destruct (deleteOmega _); reflexivity.
     Qed.
 
     Lemma deleteOmega_free : forall σ, Omega_free σ -> deleteOmega σ = σ.
     Proof.
-      intros ? H; induction H.
-      - reflexivity.
-      - simpl.
-        rewrite IHOmega_free1.
-        rewrite IHOmega_free2.
-        destruct σ; destruct τ; trivial.
-        inversion H0.
-        inversion H0.
-        inversion H0.
-        inversion H0.
-        inversion H.
-        inversion H.
-        inversion H.
-        inversion H.
-        inversion H.
-      - simpl; rewrite IHOmega_free1, IHOmega_free2.
-        inversion H; inversion H0; reflexivity.
-      - simpl; rewrite IHOmega_free.
-        inversion H; reflexivity.
-      - simpl; rewrite IHOmega_free1, IHOmega_free2.
-        inversion H; inversion H0; reflexivity.
+      intros ? H; induction H as [|σ τ|σ τ|σ|σ τ]; trivial; simpl;
+        repeat match goal with
+               | IH : _ = _ |- _ => rewrite IH; clear IH
+               | H1 : Omega_free σ, H2 : Omega_free τ |- _ => inv H1; inv H2; easy
+               | H1 : Omega_free σ |- _ => inv H1; easy
+               end.
     Qed.
 
     Lemma free_deleteOmega : forall σ, Omega_free (deleteOmega σ) \/ deleteOmega σ = ω.
     Proof.
-      induction σ.
-      - simpl.
-        left.
-        constructor.
-      - simpl.
-        inversion IHσ2; subst; clear IHσ2;
-          inversion IHσ1; subst; clear IHσ1.
-        inversion H; subst; clear H; left; constructor; trivial; constructor; trivial.
-        rewrite H0.
-        inversion H; subst; clear H; left; constructor; trivial; constructor; trivial.
-        rewrite H; right; trivial.
-        rewrite H; right; trivial.
-      - simpl.
-        inversion IHσ2; subst; clear IHσ2;
-          inversion IHσ1; subst; clear IHσ1.
-        inversion H; subst; clear H.
-        inversion H0; subst; clear H0; left; constructor; trivial; constructor; trivial.
-        inversion H0; subst; clear H0; left; constructor; trivial; constructor; trivial.
-        inversion H0; subst; clear H0; left; constructor; trivial; constructor; trivial.
-        inversion H0; subst; clear H0; left; constructor; trivial; constructor; trivial.
-        inversion H0; subst; clear H0; left; constructor; trivial; constructor; trivial.
-        rewrite H0. left; trivial.
-        rewrite H.
-        inversion H0; subst; clear H0; left; trivial; constructor; trivial.
-        rewrite H, H0.
-        right; trivial.
-      - simpl.
-        inversion IHσ2; subst; clear IHσ2;
-          inversion IHσ1; subst; clear IHσ1.
-        inversion H; subst; clear H.
-        inversion H0; subst; clear H0; left; constructor; trivial; constructor; trivial.
-        inversion H0; subst; clear H0; left; constructor; trivial; constructor; trivial.
-        inversion H0; subst; clear H0; left; constructor; trivial; constructor; trivial.
-        inversion H0; subst; clear H0; left; constructor; trivial; constructor; trivial.
-        inversion H0; subst; clear H0; left; constructor; trivial; constructor; trivial.
-        rewrite H0. right; trivial.
-        rewrite H.
-        inversion H0; right; trivial.
-        rewrite H0. right; trivial.
-      - right; trivial.
+      induction σ as [|σ IH1 τ IH2|σ IH1 τ IH2|σ IH1 τ IH2|]; simpl;
+        [left
+        |inv IH1; inv IH2; [left|right|left |right]
+        |inv IH1; inv IH2; [left|left |left |right]
+        |inv IH2; inv IH1; [left|right|right|right]
+        |right]; auto with FreeHints;
+          repeat match goal with
+                 | IH : _ = _ |- _ => rewrite IH; clear IH; trivial
+                 | H1 : Omega_free (deleteOmega σ), H2 : Omega_free (deleteOmega τ) |- _ =>
+                   inv H1; inv H2; now auto with FreeHints
+                 | H1 : Omega_free (deleteOmega σ) |- _ => inv H1; now auto with FreeHints
+                 | H1 : Omega_free (deleteOmega τ) |- _ => inv H1; now auto with FreeHints
+                 end.
     Qed.
 
-    Lemma deleteOmega_idem : forall s, deleteOmega (deleteOmega s) = deleteOmega s.
+    Lemma deleteOmega_idem : forall σ, deleteOmega (deleteOmega σ) = deleteOmega σ.
     Proof.
-      intro s; destruct (free_deleteOmega s) as [? | H].
+      intro σ; destruct (free_deleteOmega σ) as [? | H].
       rewrite (deleteOmega_free); trivial.
       rewrite H; trivial.
+    Qed.
+
+    Fixpoint Arrow_DistrRight (σ τ : term) : term :=
+      match τ with
+      | τ1 ∩ τ2 => (Arrow_DistrRight σ τ1) ∩ (Arrow_DistrRight σ τ2)
+      | _ => σ → τ
+      end.
+
+    Fixpoint Arrow_Distr (σ τ : term) : term :=
+      match σ with
+      | σ1 ∪ σ2 => (Arrow_Distr σ1 τ) ∩ (Arrow_Distr σ2 τ)
+      | _ => Arrow_DistrRight σ τ
+      end.
+
+    Fixpoint Inter_DistrRight (σ τ : term) : term :=
+      match τ with
+      | τ1 ∩ τ2 => (Inter_DistrRight σ τ1) ∩ (Inter_DistrRight σ τ2)
+      | _ => σ ∪ τ
+      end.
+
+    Fixpoint Inter_Distr (σ τ : term) : term :=
+      match σ with
+      | σ1 ∩ σ2 => (Inter_Distr σ1 τ) ∩ (Inter_Distr σ2 τ)
+      | _ => Arrow_DistrRight σ τ
+      end.
+
+    Fixpoint Union_DistrRight (σ τ : term) : term :=
+      match τ with
+      | τ1 ∪ τ2 => (Union_DistrRight σ τ1) ∪ (Union_DistrRight σ τ2)
+      | _ => σ ∩ τ
+      end.
+
+    Fixpoint Union_Distr (σ τ : term) : term :=
+      match σ with
+      | σ1 ∪ σ2 => (Union_Distr σ1 τ) ∪ (Union_Distr σ2 τ)
+      | _ => Union_DistrRight σ τ
+      end.
+
+    Fixpoint _CANF (σ : term) : term :=
+      match σ with
+      | Var α => Var α
+      | σ → τ => Arrow_Distr (_DANF σ) (_CANF τ)
+      | σ ∩ τ => (_CANF σ) ∩ (_CANF τ)
+      | σ ∪ τ => Union_Distr (_CANF σ) (_CANF τ)
+      | ω => ω
+      end
+    with _DANF (σ : term) : term :=
+           match σ with
+           | Var α => Var α
+           | σ → τ => Arrow_Distr (_DANF σ) (_CANF τ)
+           | σ ∩ τ => Inter_Distr (_DANF σ) (_DANF τ)
+           | σ ∪ τ => (_DANF σ) ∪ (_DANF τ)
+           | ω => ω
+           end.
+
+    Inductive Structural_Order : term -> term -> Prop :=
+    | SO_Arrow1 : forall σ τ, Structural_Order σ (σ → τ)
+    | SO_Arrow2 : forall σ τ, Structural_Order τ (σ → τ)
+    | SO_Inter1 : forall σ τ, Structural_Order σ (σ ∩ τ)
+    | SO_Inter2 : forall σ τ, Structural_Order τ (σ ∩ τ)
+    | SO_Union1 : forall σ τ, Structural_Order σ (σ ∪ τ)
+    | SO_Union2 : forall σ τ, Structural_Order τ (σ ∪ τ).
+
+    Lemma wf_structural : well_founded Structural_Order.
+    Proof.
+      red; intro σ.
+      induction σ; constructor; intros τ H; inv H; trivial.
+    Defined.
+
+    Section wf_pair.
+      Variables A B : Type.
+      Variables (R_A : relation A) (R_B : relation B).
+      Hypotheses (wf_A : well_founded R_A) (wf_B : well_founded R_B).
+
+      Definition pair_order : relation (A * B) :=
+        fun c1 c2 =>
+          let (a,b) := c1 in
+          let (a',b') := c2 in
+          (R_A a a' /\ (R_B b b' \/ b = b')) \/
+          (R_B b b' /\ (R_A a a' \/ a = a')).
+
+      Check (lexprod A (fun _ => B) R_A (fun _ => R_B)).
+
+      (* TODO: lexicographic order *)
+      Lemma acc_pair : forall a, Acc R_A a -> forall b, Acc R_B b -> Acc pair_order (a,b).
+      Proof.
+        intros a Aa.
+        induction Aa; induction Ab.
+        constructor.
+        intros [a' b'] H'.
+        simple inversion H'.
+        red in H'.
+        decompose [and or] H'; clear H'.
+        
+      Defined.
+
+      Lemma wf_pair : well_founded pair_order.
+      Proof.
+        red; intros [a b].
+        constructor.
+        intros [a' b'] H.
+        red in H.
+        decompose [and or] H.
+        refine (Fix wf_A (fun x => Acc pair_order (x, b')) _ a').
+        intros a'' Ha.
+        refine (Fix wf_B (fun x => Acc pair_order (a', x)) _ b).
+        intros b' Hb.
+
+      Defined.
+    End wf_pair.
+
+    Lemma Arrow_DistrRight_equiv : forall σ τ, Arrow_DistrRight σ τ ~= σ → τ.
+    Proof.
+      intros σ τ; induction τ as [| |? IH1 ? IH2| |]; simpl; try reflexivity.
+      rewrite IH1, IH2.
+      auto with SubtypeHints.
+    Qed.
+
+    Lemma Arrow_Distr_equiv : forall σ τ, Arrow_Distr σ τ ~= σ → τ.
+    Proof.
+      intros σ τ; induction σ as [| | |? IH1 ? IH2|]; simpl;
+        try apply Arrow_DistrRight_equiv.
+      rewrite IH1, IH2.
+      auto with SubtypeHints.
     Qed.
 
     Fixpoint size (t : term) : nat :=
@@ -612,7 +686,7 @@ Module Types (VAlpha : VariableAlphabet).
            | Omega => 0
            end.
 
-    Lemma combine_inheritance : forall f g P s, Combine f P s -> Combine f (Combine g P) s.
+    Lemma combine_inheritance : forall f g P s, Generalize f P s -> Generalize f (Generalize g P) s.
     Proof.
       intros ? ? ? ? H; induction H.
       - constructor; constructor; assumption.
@@ -657,17 +731,7 @@ Module Types (VAlpha : VariableAlphabet).
       -
     Qed.
 
-    Fixpoint Arrow_InterDistr (s t : term) : term :=
-      match t with
-      | Inter t1 t2 => Inter (Arrow_InterDistr s t1) (Arrow_InterDistr s t2)
-      | _ => s → t
-      end.
 
-    Fixpoint Arrow_UnionDistr (s t : term) : term :=
-      match s with
-      | Union s1 s2 => Inter (Arrow_UnionDistr s1 t) (Arrow_UnionDistr s2 t)
-      | _ => s → t
-      end.
 
     Section BetaLemmas.
           (*
