@@ -15,6 +15,8 @@ Import Arith_base.
 Import NArith.
 Import NZAddOrder.
 Import Coq.Arith.Peano_dec.
+Require Import Omega.
+
 
 Require PreOrderTactic.
 Ltac preorder := PreOrderTactic.preorder.
@@ -117,7 +119,7 @@ Module Types (VAlpha : VariableAlphabet).
     Instance equiv_Symmetric: Symmetric (~=).
     Proof.
       compute.
-      intros ? ? [? ?]; auto.
+      intros ? ? [? ?]; tauto.
     Defined.
     Instance equiv_Equivalence: Equivalence (~=) :=
       {| Equivalence_Reflexive := equiv_Reflexive;
@@ -225,7 +227,23 @@ Module Types (VAlpha : VariableAlphabet).
       intros ? ? [? ?] ? ? [? ?]...
     Defined.
 
-    (* terms on which we'll define filters *)
+    (* Best place in this file to put this tactic? *)
+    (* For easy subtyping proofs that are too hard for auto *)
+    (* We assume the subtyping hypotheses are atomic *)
+    Ltac is_subtype_heuristic :=
+      repeat lazymatch goal with
+             (* Decompose the goal *)
+             | |- ?σ ≤ ?τ ∩ ?ρ => apply Inter_inf
+             | |- ?σ ∪ ?τ ≤ ?ρ => apply Union_sup
+             | |- ?σ ≤ ω => apply R_OmegaTop
+             | |- _ → _ ≤ _ → _ => apply R_CoContra
+             (* Rewrite all the omega equalities *)
+             | H : ω ≤ _ |- _ => try rewrite <- H; clear H
+             (* final step *)
+             | |- _ => preorder
+             end.
+
+    (* Terms on which we'll define filters *)
     Unset Elimination Schemes.
     Inductive isFilter : term -> Prop :=
     | OmegaisFilter : isFilter ω
@@ -251,30 +269,28 @@ Module Types (VAlpha : VariableAlphabet).
                                    end).
     Defined.
 
-    (* Unicode starts dying below this point *)
-
     Reserved Notation "↑[ σ ] τ" (at level 65).
     Reserved Notation "↓[ σ ] τ" (at level 65).
     Inductive Filter : term -> term -> Prop :=
-    | F_Refl : forall σ, isFilter σ -> Filter σ σ
-    | F_Inter : forall σ t r, Filter σ t -> Filter σ r -> Filter σ (Inter t r)
-    | F_Union1 : forall σ t r, Filter σ t -> Filter σ (Union t r)
-    | F_Union2 : forall σ t r, Filter σ r -> Filter σ (Union t r)
-    | F_Arrow1 : forall σ1 σ2 t1 t2, σ2 ≤ σ1 -> t1 ≤ t2 -> Filter (Arr σ1 t1) (Arr σ2 t2)
-    | F_Arrow2 : forall σ1 σ2 t1 t2 r1 r2, Filter (Inter σ1 σ2) (Arr t1 r1) -> t2 ≤ t1 -> r1 ≤ r2 -> Filter (Inter σ1 σ2) (Arr t2 r2)
-    | F_OmegaTop : forall σ t, isFilter σ -> σ <> ω -> Filter ω t -> Filter σ t
-    | F_Omega : forall σ t, Filter ω t -> Filter ω (Arr σ t)
-    | F_Inter1 : forall σ1 σ2 t, isFilter σ2 -> Filter σ1 t -> Filter (Inter σ1 σ2) t
-    | F_Inter2 : forall σ1 σ2 t, isFilter σ1 -> Filter σ2 t -> Filter (Inter σ1 σ2) t
-    | F_ArrowInter : forall σ1 σ2 t r1 r2, Filter (Inter σ1 σ2) (Inter (Arr t r1) (Arr t r2)) -> Filter (Inter σ1 σ2) (Arr t (Inter r1 r2))
-    | F_ArrowUnion : forall σ1 σ2 t1 t2 r, Filter (Inter σ1 σ2) (Inter (Arr t1 r) (Arr t2 r)) -> Filter (Inter σ1 σ2) (Arr (Union t1 t2) r)
+    | F_Refl : forall σ : term, isFilter σ -> ↑[σ] σ
+    | F_Inter : forall σ τ ρ : term, ↑[σ] τ -> ↑[σ] ρ -> ↑[σ] τ ∩ ρ
+    | F_Union1 : forall σ τ ρ : term, ↑[σ] τ -> ↑[σ] τ ∪ ρ
+    | F_Union2 : forall σ τ ρ : term, ↑[σ] ρ -> ↑[σ] τ ∪ ρ
+    | F_Arrow1 : forall σ1 σ2 τ1 τ2 : term, σ2 ≤ σ1 -> τ1 ≤ τ2 -> ↑[σ1 → τ1] σ2 → τ2
+    | F_Arrow2 : forall σ1 σ2 τ1 τ2 ρ1 ρ2 : term, ↑[σ1 ∩ σ2] τ1 → ρ1 -> τ2 ≤ τ1 -> ρ1 ≤ ρ2 -> ↑[σ1 ∩ σ2] τ2 → ρ2
+    | F_OmegaTop : forall σ τ : term, isFilter σ -> σ <> ω -> ↑[ω] τ -> ↑[σ] τ
+    | F_Omega : forall σ τ : term, ↑[ω] τ -> ↑[ω] σ → τ
+    | F_Inter1 : forall σ1 σ2 τ : term, isFilter σ2 -> ↑[σ1] τ -> ↑[σ1 ∩ σ2] τ
+    | F_Inter2 : forall σ1 σ2 τ : term, isFilter σ1 -> ↑[σ2] τ -> ↑[σ1 ∩ σ2] τ
+    | F_ArrowInter : forall σ1 σ2 τ ρ1 ρ2 : term, ↑[σ1 ∩ σ2] (τ → ρ1) ∩ (τ → ρ2) -> ↑[σ1 ∩ σ2] τ → ρ1 ∩ ρ2
+    | F_ArrowUnion : forall σ1 σ2 τ1 τ2 ρ : term, ↑[σ1 ∩ σ2] (τ1 → ρ) ∩ (τ2 → ρ) -> ↑[σ1 ∩ σ2] τ1 ∪ τ2 → ρ
     where "↑[ σ ] τ" := (Filter σ τ).
 
     Create HintDb FilterHints.
     Hint Constructors Filter : FilterHints.
     Hint Constructors isFilter : FilterHints.
 
-    Lemma Filter_correct : forall σ t, Filter σ t -> σ ≤ t.
+    Lemma Filter_correct : forall σ τ, ↑[σ] τ -> σ ≤ τ.
     Proof with auto with SubtypeHints.
       intros ? ? H.
       induction H...
@@ -285,149 +301,138 @@ Module Types (VAlpha : VariableAlphabet).
     Qed.
     Hint Resolve Filter_correct : SubtypeHints.
 
-    Lemma Filter_isFilter: forall s t, Filter s t -> isFilter s.
+    Lemma Filter_isFilter: forall σ τ, ↑[σ] τ -> isFilter σ.
     Proof.
       intros ? ? H; induction H; auto; constructor; auto.
     Qed.
     Hint Resolve Filter_isFilter : FilterHints.
 
-    Section Filter.
-      Variable s : term.
-      Hypothesis Fs : isFilter s.
+    (* cast ρ to σ (may produce new goals) *)
+    Ltac cast_filter ρ σ :=
+      lazymatch σ with
+      | ω => apply F_OmegaTop
+      | _ => lazymatch ρ with
+             | σ ∩ _ => apply F_Inter1
+             | _ ∩ σ => apply F_Inter2
+             end
+      end.
 
-      Lemma FilterInter : forall t r, Filter s (Inter t r) -> Filter s t /\ Filter s r.
-        intros ? ? H ; induction Fs; split; inversion H; clear H; subst;
+    Section Filter.
+      Variable σ : term.
+      Hypothesis Fσ : isFilter σ.
+
+      Lemma FilterInter : forall τ ρ, ↑[σ] τ ∩ ρ -> ↑[σ] τ /\ ↑[σ] ρ.
+        intros ? ? H ; induction Fσ; split; inversion H; clear H; subst;
           auto with FilterHints;
           lazymatch goal with
           | H : ω <> ω |- _ => contradiction
           (* Inductive case *)
-          | IH : _ -> ↑[ ?x] ?y ∩ ?z -> _, H : ↑[ ?x] ?y ∩ ?z |- ↑[ ?t] _ =>
-            (* cast t to x *)
-            lazymatch x with
-            | ω => apply F_OmegaTop
-            | _ => lazymatch t with
-                   | Inter x _ => apply F_Inter1
-                   | Inter _ x => apply F_Inter2
-                   end
-            end;
+          | IH : _ -> ↑[?σ] ?τ -> _, H : ↑[?σ] ?τ |- ↑[?ρ] _ =>
+            (* cast ρ to σ *)
+            cast_filter ρ σ;
               (* apply the inductive hypothesis *)
               trivial; apply IH; trivial with FilterHints
           end.
       Qed.
 
-      Lemma FilterUnion : forall t r, Filter s (Union t r) -> Filter s t \/ Filter s r.
-        intros ? ? H; induction Fs; inversion H; clear H; subst; auto;
+      Lemma FilterUnion : forall τ ρ, ↑[σ] τ ∪ ρ -> ↑[σ] τ \/ ↑[σ] ρ.
+        intros ? ? H; induction Fσ; inversion H; clear H; subst; auto;
           lazymatch goal with
           | H : ω <> ω |- _ => contradiction
           (* Inductive case *)
-          | IH : _ -> ↑[ ?x] ?y ∪ ?z -> ?p, H : ↑[ ?x] ?y ∪ ?z |- ↑[ ?t] ?y \/ ↑[ ?t] ?z =>
+          | IH : _ -> ↑[?σ] ?τ1 ∪ ?τ2 -> ?prop, H : ↑[?σ] ?τ1 ∪ ?τ2 |- ↑[?ρ] ?τ1 \/ ↑[?ρ] ?τ2 =>
             (* apply the inductive hypothesis *)
-            assert (H' : p) by (apply IH; trivial with FilterHints); destruct H'; [left|right];
-              (* cast t to x *)
-              lazymatch x with
-              | ω => apply F_OmegaTop
-              | _ => lazymatch t with
-                     | Inter x _ => apply F_Inter1
-                     | Inter _ x => apply F_Inter2
-                     end
-              end; assumption
+            assert (H' : prop) by (apply IH; trivial with FilterHints); destruct H'; [left|right];
+              cast_filter ρ σ; assumption
           end.
       Qed.
     End Filter.
 
-    Search (Subtype ?x (Inter ?y ?z) -> Subtype ?x ?y /\ Subtype ?x ?z).
-    Check Inter_inf.
+    Section Filter_closed.
+      Ltac filter_closed :=
+        trivial with FilterHints;
+        match goal with
+        (* Trivial cases *)
+        | H : ω <> ω |- _ => contradiction
+        | |- _ <> _ => discriminate
+        | H : ↑[?σ] _ |- isFilter ?σ => apply (Filter_isFilter _ _ H)
+        | |- ↑[ω] ω => apply F_Refl; constructor
 
-    Ltac is_subtype :=
-      repeat lazymatch goal with
-             (* second step: decompose the goal *)
-             | |- ?σ ≤ ?τ ∩ ?ρ => apply Inter_inf
-             | |- ?σ ∪ ?τ ≤ ?ρ => apply Union_sup
-             | |- ?σ ≤ ω => apply R_OmegaTop
-             | |- Arr _ _ ≤ Arr _ _ => apply R_CoContra
-             (* third step: rewrite all the omega equalities *)
-             | H : ω ≤ _ |- _ => try rewrite <- H; clear H
-             (* final step *)
-             | |- _ => preorder
-             end.
+        (* Destruct the hypothesis *)
+        | H : ↑[ω] _ → _ |- _ => inversion H; clear H; subst; filter_closed
+        | H : ↑[_ → _] _ → _ |- _ => inversion H; clear H; subst; filter_closed
+        | H : ↑[Var _] _ → _ |- _ => inversion H; clear H; subst; filter_closed
+        | H : ↑[_] _ ∪ _ |- _ => apply FilterUnion in H; destruct H; filter_closed
+        | H : ↑[?σ ∩ ?τ] (?ρ → _) ∩ (?ρ → _) |- _ => apply F_ArrowInter in H; filter_closed
+        | H : ↑[?σ ∩ ?τ] (_ → ?ρ) ∩ (_ → ?ρ) |- _ => apply F_ArrowUnion in H; filter_closed
+        | H : ↑[_] _ ∩ _ |- _ => apply FilterInter in H; destruct H; filter_closed
+        | H : isFilter ?σ |- _ => match σ with (* Absurd hypothesis *)
+                                  | context [(∪)] => inversion H; filter_closed
+                                  end
+        (* For proving ↑[σ1 ∩ σ2], cast the (→) up in the hypotheses *)
+        | H : ↑[?σ1 ∩ ?σ2] ?τ1 → ?ρ1, H1 : ?τ2 ≤ ?τ1, H2 : ?ρ1 ≤ ?ρ2 |- ↑[?σ1 ∩ ?σ2] _ =>
+          assert (↑[σ1 ∩ σ2] τ2 → ρ2) by (apply (F_Arrow2 σ1 σ2 τ1 τ2 ρ1 ρ2 H H1 H2));
+          clear H; filter_closed
+        | IH : (forall τ1 τ2, ↑[?σ1] _ -> _), H : ↑[?σ1] ?τ1 → ?ρ1, H1 : ?τ2 ≤ ?τ1, H2 : ?ρ1 ≤ ?ρ2
+          |- ↑[?σ1 ∩ ?σ2] _ =>
+          assert (↑[σ1] τ2 → ρ2) by (apply (IH (τ1 → ρ1) _ H); is_subtype_heuristic);
+          clear H; filter_closed
+        | IH : (forall τ1 τ2, ↑[?σ2] _ -> _), H : ↑[?σ2] ?τ1 → ?ρ1, H1 : ?τ2 ≤ ?τ1, H2 : ?ρ1 ≤ ?ρ2
+          |- ↑[?σ1 ∩ ?σ2] _ =>
+          assert (↑[σ2] τ2 → ρ2) by (apply (IH (τ1 → ρ1) _ H); is_subtype_heuristic);
+          clear H; filter_closed
 
-    Ltac foo :=
-      match goal with
-      (* trivial cases *)
-      | H : ?x |- ?x => assumption
-      | H : ω <> ω |- _ => contradiction
-      | |- _ <> _ => discriminate
-      | H : Filter ?x _ |- isFilter ?x => apply (Filter_isFilter _ _ H)
-      | |- Filter ω ω => apply F_Refl; constructor
+        (* Destruct the goal *)
+        | |- isFilter _ => constructor; filter_closed
+        | |- ↑[_] ω => apply F_OmegaTop; filter_closed
+        | |- ↑[_] _ ∩ _ => apply F_Inter; filter_closed
+        | |- ↑[_ ∩ _] ω → ω => apply F_OmegaTop; filter_closed
+        | |- ↑[ω] _ → _ => apply F_Omega; filter_closed
 
-      (* destruct the hypothesis *)
-      | H : Filter ω (Arr _ _) |- _ => inversion H; clear H; subst; foo
-      | H : Filter (Arr _ _) (Arr _ _) |- _ => inversion H; clear H; subst; foo
-      | H : Filter (Var _) (Arr _ _) |- _ => inversion H; clear H; subst; foo
-      | H : Filter _ (Union _ _) |- _ => apply FilterUnion in H; destruct H; foo
-      | H : ↑[ ?s ∩ ?t] Inter (?τ → _) (?τ → _) |- _ =>
-        apply F_ArrowInter in H; foo
-      | H : ↑[ ?s ∩ ?t] Inter (_ → ?τ) (_ → ?τ) |- _ =>
-        apply F_ArrowUnion in H; foo
-      | H : Filter _ (Inter _ _) |- _ => apply FilterInter in H; destruct H; foo
-      | H : isFilter ?x |- _ => match x with
-                                | context [Union] => inversion H; foo
-                                end
-      (* for the Inter hypotheses, cast the Arrow up *)
-      | H : ↑[ ?x ∩ ?y ] ?t1 → ?r1, H1 : ?t2 ≤ ?t1, H2 : ?r1 ≤ ?r2
-        |- ↑[ ?x ∩ ?y ] _ =>
-        assert (↑[ x ∩ y ] t2 → r2) by (apply (F_Arrow2 x y t1 t2 r1 r2 H H1 H2)); clear H; foo
-      | IH : (forall t1 t2, ↑[?x] _ -> _), H : ↑[ ?x ] ?t1 → ?r1, H1 : ?t2 ≤ ?t1, H2 : ?r1 ≤ ?r2
-        |- ↑[ ?x ∩ ?y ] _ =>
-        assert (↑[ x ] t2 → r2) by (apply (IH (Arr t1 r1) _ H); is_subtype); clear H; foo
-      | IH : (forall t1 t2, ↑[?y] _ -> _), H : ↑[ ?y ] ?t1 → ?r1, H1 : ?t2 ≤ ?t1, H2 : ?r1 ≤ ?r2
-        |- ↑[ ?x ∩ ?y ] _ =>
-        assert (↑[ y ] t2 → r2) by (apply (IH (Arr t1 r1) _ H); is_subtype); clear H; foo
+        (* Final step: induction *)
+        | IH : (forall τ1 τ2, ↑[?σ] τ1 -> τ1 ≤ τ2 -> _), le_H : ?τ1 ≤ ?τ2, H : ↑[?σ] ?τ1
+          |- ↑[?ρ] ?τ2 =>
+          cast_filter ρ σ; trivial with FilterHints; apply (IH τ1 τ2 H le_H)
+        (* Inductive case where the goal is ↑[σ] (τ → ρ), and ρ is equivalent to ω *)
+        | IH : (forall τ1 τ2, ↑[ω] τ1 -> τ1 ≤ τ2 -> _), le_H : ?τ1 ≤ ?τ2, H : ↑[ω] ?τ1
+          |- ↑[_] _ → ?τ2 =>
+          apply F_OmegaTop; trivial with FilterHints; apply F_Omega; apply (IH τ1 τ2 H le_H)
+        (* All the other cases for (→) *)
+        | |- ↑[_ → _] _ → _ => auto with FilterHints; constructor; auto with SubtypeHints;
+                               repeat match goal with
+                                      | H : ↑[ω] _ |- _ => apply (Filter_correct _ _) in H
+                                      end; is_subtype_heuristic
+        | _ => auto with FilterHints
+        end.
 
-      (* destruct the goal *)
-      | |- isFilter _ => constructor; foo
-      | |- Filter _ ω => apply F_OmegaTop; foo
-      | |- Filter _ (Inter _ _) => apply F_Inter; foo
-      | |- Filter (Inter _ _) (Arr ω ω) => apply F_OmegaTop; foo
-      | |- Filter ω (Arr _ _) => apply F_Omega; foo
+      Lemma Filter_closed : forall σ, isFilter σ -> forall τ1 τ2, ↑[σ] τ1 -> τ1 ≤ τ2 -> ↑[σ] τ2.
+      Proof.
+        intros ? Fσ; induction Fσ; intros ? ? H1 H2;
+          induction H2; inversion H1; clear H1; subst; filter_closed.
+      Qed.
+    End Filter_closed.
 
-      (* Final step: induction *)
-      | IH : (forall a b, ↑[ ?x] a -> a ≤ b -> _), le_H : ?a ≤ ?b, H : ↑[ ?x] ?a |- ↑[ ?t] ?b =>
-        lazymatch x with
-        | ω => apply F_OmegaTop
-        | _ => lazymatch t  with
-               | Inter x _ => apply F_Inter1
-               | Inter _ x => apply F_Inter2
-               end
-        end; trivial with FilterHints; apply (IH a b H le_H)
-      (* Inductive case where the goal is Filter a (Arr b c), and c is omega *)
-      | IH : (forall a b, ↑[ ω] a -> a ≤ b -> _), le_H : ?a ≤ ?b, H : ↑[ ω] ?a |- ↑[ ?t] Arr _ ?b =>
-        apply F_OmegaTop; trivial with FilterHints; apply F_Omega; apply (IH a b H le_H)
-      (* All the other cases for Arrow *)
-      | |- Filter (Arr _ _) (Arr _ _) => auto with FilterHints; constructor; auto with SubtypeHints;
-                                         repeat match goal with
-                                                | H : Filter ω _ |- _ => apply (Filter_correct _ _) in H
-                                                end; is_subtype
-      | _ => auto with FilterHints
-      end.
-
-    Lemma Filter_complete : forall s, isFilter s -> forall t1 t2, Filter s t1 -> t1 ≤ t2 -> Filter s t2.
+    Lemma Filter_complete : forall σ, isFilter σ -> forall τ, σ ≤ τ -> ↑[σ] τ.
     Proof.
-      intros ? Fs; induction Fs; intros ? ? H1 H2;
-        induction H2; inversion H1; clear H1; subst; foo.
+      intros; eapply Filter_closed; try eassumption.
+      apply F_Refl; assumption.
     Qed.
 
-    Inductive Ideal : term -> -> term -> Prop :=
-    | InterIdeal1 : forall s t r, Ideal s t -> Ideal s (Inter t r)
-    | InterIdeal2 : forall s t r, Ideal s r -> Ideal s (Inter t r)
-    | UnionIdeal : forall s t r, Ideal s t -> Ideal s r -> Ideal s (Union t r)
-    | OmegaIdeal : forall s, Ideal Omega s
-    | 
+    (* Unicode starts dying below this point *)
 
+    Inductive Combine (U : term -> term -> term) (P : term -> Prop) : term -> Prop :=
+    | C_nil : forall σ, P σ -> Combine U P σ
+    | C_cons : forall σ τ, Combine U P σ -> Combine U P τ -> Combine U P (U σ τ).
 
-    where "↓[ σ ] τ" := (Ideal σ τ).
+    Inductive ANF : term -> Prop :=
+    | VarisANF : forall α, ANF (Var α)
+    | ArrowisANF : forall σ τ, Combine Inter ANF σ -> Combine Union ANF τ -> ANF (σ → τ)
+    | ArrowisANF' : forall σ, Combine Union ANF σ -> ANF (ω → σ).
 
-        (* First rewriting function: do Omega-related simplifications *)
+    Definition CANF (σ : term) : Prop := σ = ω \/ Combine Inter (Combine Union ANF) σ.
+    Definition DANF (σ : term) : Prop := σ = ω \/ Combine Union (Combine Inter ANF) σ.
+
+    (* First rewriting function: do Omega-related simplifications *)
     Fixpoint deleteOmega (s : term) : term :=
       match s with
       | s → t => let s := deleteOmega s in
@@ -468,13 +473,201 @@ Module Types (VAlpha : VariableAlphabet).
         auto with SubtypeHints.
     Qed.
 
-    Lemma deleteOmega_idem : forall s, deleteOmega(deleteOmega s) = deleteOmega s.
-    Proof.
-    Abort.
+    Inductive Omega_free : term -> Prop :=
+    | Of_Var : forall α, Omega_free (Var α)
+    | Of_Union : forall σ τ, Omega_free σ -> Omega_free τ -> Omega_free (Union σ τ)
+    | Of_Inter : forall σ τ, Omega_free σ -> Omega_free τ -> Omega_free (Inter σ τ)
+    | Of_Arrow1 : forall σ, Omega_free σ -> Omega_free (Arr ω σ)
+    | Of_Arrow2 : forall σ τ, Omega_free σ -> Omega_free τ -> Omega_free (Arr σ τ).
 
     Lemma deleteOmega_Omega : forall s, s ~= Omega -> deleteOmega s = Omega.
     Proof.
-    Abort.
+      intros s [_H H]; clear _H.
+      apply Filter_complete in H; trivial with FilterHints.
+      induction s.
+      - inversion H; subst; clear H.
+        contradiction.
+      - inversion H; subst; clear H.
+        contradiction.
+        simpl.
+        rewrite IHs2; trivial.
+      - inversion H; subst; clear H.
+        simpl.
+        rewrite IHs1; trivial.
+        rewrite IHs2; trivial.
+        contradiction.
+      - inversion H; subst; clear H.
+        simpl.
+        rewrite IHs1; trivial.
+        simpl.
+        rewrite IHs2; trivial.
+        destruct (deleteOmega s1); trivial.
+        contradiction.
+      - reflexivity.
+    Qed.
+
+    Lemma deleteOmega_free : forall σ, Omega_free σ -> deleteOmega σ = σ.
+    Proof.
+      intros ? H; induction H.
+      - reflexivity.
+      - simpl.
+        rewrite IHOmega_free1.
+        rewrite IHOmega_free2.
+        destruct σ; destruct τ; trivial.
+        inversion H0.
+        inversion H0.
+        inversion H0.
+        inversion H0.
+        inversion H.
+        inversion H.
+        inversion H.
+        inversion H.
+        inversion H.
+      - simpl; rewrite IHOmega_free1, IHOmega_free2.
+        inversion H; inversion H0; reflexivity.
+      - simpl; rewrite IHOmega_free.
+        inversion H; reflexivity.
+      - simpl; rewrite IHOmega_free1, IHOmega_free2.
+        inversion H; inversion H0; reflexivity.
+    Qed.
+
+    Lemma free_deleteOmega : forall σ, Omega_free (deleteOmega σ) \/ deleteOmega σ = ω.
+    Proof.
+      induction σ.
+      - simpl.
+        left.
+        constructor.
+      - simpl.
+        inversion IHσ2; subst; clear IHσ2;
+          inversion IHσ1; subst; clear IHσ1.
+        inversion H; subst; clear H; left; constructor; trivial; constructor; trivial.
+        rewrite H0.
+        inversion H; subst; clear H; left; constructor; trivial; constructor; trivial.
+        rewrite H; right; trivial.
+        rewrite H; right; trivial.
+      - simpl.
+        inversion IHσ2; subst; clear IHσ2;
+          inversion IHσ1; subst; clear IHσ1.
+        inversion H; subst; clear H.
+        inversion H0; subst; clear H0; left; constructor; trivial; constructor; trivial.
+        inversion H0; subst; clear H0; left; constructor; trivial; constructor; trivial.
+        inversion H0; subst; clear H0; left; constructor; trivial; constructor; trivial.
+        inversion H0; subst; clear H0; left; constructor; trivial; constructor; trivial.
+        inversion H0; subst; clear H0; left; constructor; trivial; constructor; trivial.
+        rewrite H0. left; trivial.
+        rewrite H.
+        inversion H0; subst; clear H0; left; trivial; constructor; trivial.
+        rewrite H, H0.
+        right; trivial.
+      - simpl.
+        inversion IHσ2; subst; clear IHσ2;
+          inversion IHσ1; subst; clear IHσ1.
+        inversion H; subst; clear H.
+        inversion H0; subst; clear H0; left; constructor; trivial; constructor; trivial.
+        inversion H0; subst; clear H0; left; constructor; trivial; constructor; trivial.
+        inversion H0; subst; clear H0; left; constructor; trivial; constructor; trivial.
+        inversion H0; subst; clear H0; left; constructor; trivial; constructor; trivial.
+        inversion H0; subst; clear H0; left; constructor; trivial; constructor; trivial.
+        rewrite H0. right; trivial.
+        rewrite H.
+        inversion H0; right; trivial.
+        rewrite H0. right; trivial.
+      - right; trivial.
+    Qed.
+
+    Lemma deleteOmega_idem : forall s, deleteOmega (deleteOmega s) = deleteOmega s.
+    Proof.
+      intro s; destruct (free_deleteOmega s) as [? | H].
+      rewrite (deleteOmega_free); trivial.
+      rewrite H; trivial.
+    Qed.
+
+    Fixpoint size (t : term) : nat :=
+      match t with
+      | Var _ => 0
+      | Inter s t => S ((size s) + (size t))
+      | Union s t => S ((size s) + (size t))
+      | Arr  s t => S ((size s) + (size t))
+      | Omega => 0
+      end.
+
+    Fixpoint metric_CANF (t : term) : nat :=
+      match t with
+      | Var _ => 0
+      | Inter s t => metric_CANF s + metric_CANF t
+      | Union (Inter s t) r => S (metric_CANF s + metric_CANF t + metric_CANF r)
+      | Union s (Inter t r) => S (metric_CANF s + metric_CANF t + metric_CANF r)
+      | Union s t => metric_CANF s + metric_CANF t
+      | Arr s t => metric_CANF s + metric_DANF t
+      | Omega => 0
+      end
+    with metric_DANF (t : term) : nat :=
+           match t with
+           | Var _ => 0
+           | Inter (Union s t) r => S (metric_DANF s + metric_DANF t + metric_DANF r)
+           | Inter s (Union t r) => S (metric_DANF s + metric_DANF t + metric_DANF r)
+           | Inter s t => metric_DANF s + metric_DANF t
+           | Union s t => metric_DANF s + metric_DANF t
+           | Arr s t => metric_CANF s + metric_DANF t
+           | Omega => 0
+           end.
+
+    Lemma combine_inheritance : forall f g P s, Combine f P s -> Combine f (Combine g P) s.
+    Proof.
+      intros ? ? ? ? H; induction H.
+      - constructor; constructor; assumption.
+      - constructor 2; assumption.
+    Qed.
+
+    Inductive Acc_CANF (s : term) : Prop :=
+    | rec_canf : (forall t, metric_CANF t < metric_CANF s -> Acc_CANF t) -> (forall t, metric_DANF t < metric_CANF s -> Acc_DANF t) -> Acc_CANF s
+    with Acc_DANF (s : term) : Prop :=
+    | rec_danf : (forall t, metric_DANF t < metric_DANF s -> Acc_DANF t) -> (forall t, metric_CANF t < metric_DANF s -> Acc_CANF t) -> Acc_DANF s.
+
+    Lemma foo : forall n, Acc lt n.
+    Proof.
+      intro n; induction n.
+      constructor.
+      intros; inversion H.
+      constructor.
+      intros.
+      inversion H; clear H; subst.
+      trivial.
+      inversion IHn.
+      apply H.
+      trivial.
+    Qed.
+
+
+    Fixpoint Acc_canf s {struct s} : Acc_CANF s
+    with Acc_danf s {struct s} : Acc_DANF s.
+    Proof.
+      - destruct s.
+        + constructor; simpl; intros ? H; inversion H.
+        + assert (H : Acc_CANF s1) by (exact (Acc_canf s1)).
+          inversion H; subst; clear H.
+          constructor; simpl.
+          * intros t H'.
+            apply H0.
+            admit. (* maths *)
+          * intros t H.
+            apply H1.
+            admit. (* maths *)
+        +
+      -
+    Qed.
+
+    Fixpoint Arrow_InterDistr (s t : term) : term :=
+      match t with
+      | Inter t1 t2 => Inter (Arrow_InterDistr s t1) (Arrow_InterDistr s t2)
+      | _ => s → t
+      end.
+
+    Fixpoint Arrow_UnionDistr (s t : term) : term :=
+      match s with
+      | Union s1 s2 => Inter (Arrow_UnionDistr s1 t) (Arrow_UnionDistr s2 t)
+      | _ => s → t
+      end.
 
     Section BetaLemmas.
           (*
