@@ -23,6 +23,16 @@ Require PreOrderTactic.
 Ltac preorder := PreOrderTactic.preorder.
 Ltac inv H := inversion H; clear H; subst.
 
+Hint Extern 0 => lazymatch goal with
+                 | H : ?x <> ?x |- _ => contradiction
+                 | |- _ <> _ => discriminate
+                 end.
+
+Hint Extern 1 => lazymatch goal with
+                 | H : _ /\ _ |- _ => destruct H
+                 | H : _ \/ _ |- _ => destruct H
+                 end.
+
 (* Dummy module type *)
 Module Type SetTyp <: Typ.
   Parameter t : Set.
@@ -40,12 +50,12 @@ Module Types (VAlpha : VariableAlphabet).
   (* Our type syntax *)
   Inductive term : Set :=
   | Var : 𝕍 -> term
-  | Arr : term -> term -> term
+  | Arrow : term -> term -> term
   | Inter : term -> term -> term
   | Union : term -> term -> term
   | Omega : term.
-  Infix "→" := (Arr) (at level 60, right associativity).
-  Notation "(→)" := Arr (only parsing).
+  Infix "→" := (Arrow) (at level 60, right associativity).
+  Notation "(→)" := Arrow (only parsing).
   Infix "∩" := (Inter) (at level 35, right associativity).
   Notation "(∩)" := (Inter) (only parsing).
   Infix "∪" := (Union) (at level 30, right associativity).
@@ -112,6 +122,7 @@ Module Types (VAlpha : VariableAlphabet).
     Proof.
       auto with SubtypeHints.
     Defined.
+    Hint Immediate equiv_Reflexive : SubtypeHints.
     Instance equiv_Transitive: Transitive (~=).
     Proof.
       compute.
@@ -120,8 +131,7 @@ Module Types (VAlpha : VariableAlphabet).
     Defined.
     Instance equiv_Symmetric: Symmetric (~=).
     Proof.
-      compute.
-      intros ? ? [? ?]; tauto.
+      compute; auto.
     Defined.
     Instance equiv_Equivalence: Equivalence (~=) :=
       {| Equivalence_Reflexive := equiv_Reflexive;
@@ -131,7 +141,7 @@ Module Types (VAlpha : VariableAlphabet).
     (* Useless ??? *)
     Instance Subtypes_PartialOrder : PartialOrder (~=) (≤).
     Proof.
-      compute; split; intros [? ?]; auto.
+      compute; auto.
     Defined.
 
     (* Let's make the SubtypeHints database bigger *)
@@ -142,19 +152,18 @@ Module Types (VAlpha : VariableAlphabet).
     Defined.
     Hint Resolve Inter_inf : SubtypeHints.
 
-    Fact Inter_inf_dual : forall σ τ ρ, (σ ≤ ρ) \/ (τ ≤ ρ) -> σ ∩ τ ≤ ρ.
-    Proof with auto with SubtypeHints.
-      intros σ τ ? [? | ?];
-        [transitivity σ | transitivity τ]...
-    Defined.
-    Hint Resolve Inter_inf_dual : SubtypeHints.
-
-    (* Useless ??? *)
     Fact Inter_inf' : forall σ τ ρ, σ ≤ τ ∩ ρ -> (σ ≤ τ) /\ (σ ≤ ρ).
     Proof with auto with SubtypeHints.
       intros; split;
         etransitivity;
         try eassumption...
+    Defined.
+
+    (* Don't put it in auto or it may be slow *)
+    Fact Inter_inf_dual : forall σ τ ρ, (σ ≤ ρ) \/ (τ ≤ ρ) -> σ ∩ τ ≤ ρ.
+    Proof with auto with SubtypeHints.
+      intros σ τ ? [? | ?];
+        [transitivity σ | transitivity τ]...
     Defined.
 
     Fact Union_sup : forall σ τ ρ, σ ≤ ρ -> τ ≤ ρ -> σ ∪ τ ≤ ρ.
@@ -164,19 +173,18 @@ Module Types (VAlpha : VariableAlphabet).
     Defined.
     Hint Resolve Union_sup : SubtypeHints.
 
-    Fact Union_sup_dual : forall σ τ ρ, (σ ≤ τ) \/ (σ ≤ ρ) -> σ ≤ τ ∪ ρ.
-    Proof with auto with SubtypeHints.
-      intros ? τ ρ [? | ?];
-        [transitivity τ | transitivity ρ]...
-    Defined.
-    Hint Resolve Union_sup_dual : SubtypeHints.
-
-    (* Useless ??? *)
     Fact Union_sup' : forall σ τ ρ, σ ∪ τ ≤ ρ -> (σ ≤ ρ) /\ (τ ≤ ρ).
     Proof with auto with SubtypeHints.
       intros; split;
         etransitivity;
         try eassumption...
+    Defined.
+
+    (* Don't put it in auto or it may be slow *)
+    Fact Union_sup_dual : forall σ τ ρ, (σ ≤ τ) \/ (σ ≤ ρ) -> σ ≤ τ ∪ ρ.
+    Proof with auto with SubtypeHints.
+      intros ? τ ρ [? | ?];
+        [transitivity τ | transitivity ρ]...
     Defined.
 
     Fact OmegaArrow : forall σ τ, ω ≤ τ -> ω ≤ σ → τ.
@@ -185,11 +193,28 @@ Module Types (VAlpha : VariableAlphabet).
     Defined.
     Hint Resolve OmegaArrow : SubtypeHints.
 
+    (* Ask auto to automatically simplify the hypotheses *)
+    Hint Extern 4 => match goal with
+                     | H : ?σ ≤ ?τ ∩ ?ρ |- _ => apply Inter_inf' in H; destruct H
+                     | H : ?σ ∪ ?τ ≤ ?ρ |- _ => apply Union_sup' in H; destruct H
+                     | H : ω ≤ _ |- _ => try rewrite <- H; clear H
+                     end : SubtypeHints.
+
+    (* Ask auto to use preorder if the goal is atomic *)
+    Hint Extern 30 (?x ≤ ?y) =>
+    lazymatch x with
+    | _ _ _ => fail
+    | _ => lazymatch y with
+           | _ _ _ => fail
+           | _ => preorder
+           end
+    end : SubtypeHints.
+
     Fact UnionInterDistrib : forall σ τ ρ, (σ ∪ τ) ∩ (σ ∪ ρ) ≤ σ ∪ (τ ∩ ρ).
     Proof with auto with SubtypeHints.
       intros.
       etransitivity; [apply R_InterUnionDistrib|]...
-      apply Union_sup...
+      apply Union_sup; [apply Union_sup_dual|]...
       transitivity (ρ ∩ (σ ∪ τ))...
       etransitivity; [apply R_InterUnionDistrib|]...
     Defined.
@@ -213,37 +238,73 @@ Module Types (VAlpha : VariableAlphabet).
 
     Instance Inter_Proper_EQ : Proper ((~=) ==> (~=) ==> (~=)) (∩).
     Proof with auto with SubtypeHints.
-      compute.
-      intros ? ? [? ?] ? ? [? ?]...
+      compute...
     Defined.
 
     Instance Union_Proper_EQ : Proper ((~=) ==> (~=) ==> (~=)) (∪).
     Proof with auto with SubtypeHints.
-      compute.
-      intros ? ? [? ?] ? ? [? ?]...
+      compute...
     Defined.
 
     Instance Arr_Proper_EQ : Proper ((~=) ==> (~=) ==> (~=)) (→).
     Proof with auto with SubtypeHints.
-      compute.
-      intros ? ? [? ?] ? ? [? ?]...
+      compute...
     Defined.
 
-    (* Best place in this file to put this tactic? *)
-    (* For easy subtyping proofs that are too hard for auto *)
-    (* We assume the subtyping hypotheses are atomic *)
-    Ltac is_subtype_heuristic :=
-      repeat lazymatch goal with
-             (* Decompose the goal *)
-             | |- ?σ ≤ ?τ ∩ ?ρ => apply Inter_inf
-             | |- ?σ ∪ ?τ ≤ ?ρ => apply Union_sup
-             | |- ?σ ≤ ω => apply R_OmegaTop
-             | |- _ → _ ≤ _ → _ => apply R_CoContra
-             (* Rewrite all the omega equalities *)
-             | H : ω ≤ _ |- _ => try rewrite <- H; clear H
-             (* final step *)
-             | |- _ => preorder
-             end.
+    (* Syntactical predicates on terms *)
+    Inductive Generalize (c : term -> term -> term) (P : term -> Prop) : term -> Prop :=
+    | G_nil : forall σ, P σ -> Generalize c P σ
+    | G_cons : forall σ τ, Generalize c P σ -> Generalize c P τ -> Generalize c P (c σ τ).
+    Hint Constructors Generalize : SubtypeHints.
+
+    (* Notations: [ ⋂ P ] x means x is a generalized intersection of terms verifying P *)
+    Notation "[ ⋂ P ]" := (Generalize (∩) P).
+    Notation "[ ⋃ P ]" := (Generalize (∪) P).
+
+    (* Arrow Normal Form *)
+    Inductive ANF : term -> Prop :=
+    | VarisANF : forall α, ANF (Var α)
+    | ArrowisANF : forall σ τ, [⋂ ANF] σ -> [⋃ ANF] τ -> ANF (σ → τ)
+    | ArrowisANF' : forall τ, [⋃ ANF] τ -> ANF (ω → τ).
+    Hint Constructors ANF : SubtypeHints.
+
+    (* Conjunctive/Disjunctive Normal Forms *)
+    Definition CANF (σ : term) : Prop := σ = ω \/ [⋂ [⋃ ANF]] σ.
+    Definition DANF (σ : term) : Prop := σ = ω \/ [⋃ [⋂ ANF]] σ.
+
+    (* Terms without Omega (with one exception) *)
+    Inductive Omega_free : term -> Prop :=
+    | Of_Var : forall α, Omega_free (Var α)
+    | Of_Union : forall σ τ, Omega_free σ -> Omega_free τ -> Omega_free (σ ∪ τ)
+    | Of_Inter : forall σ τ, Omega_free σ -> Omega_free τ -> Omega_free (σ ∩ τ)
+    | Of_Arrow1 : forall σ, Omega_free σ -> Omega_free (ω → σ)
+    | Of_Arrow2 : forall σ τ, Omega_free σ -> Omega_free τ -> Omega_free (σ → τ).
+    Hint Constructors Omega_free : SubtypeHints.
+
+    Hint Extern 0 =>
+    repeat lazymatch goal with
+           | H : [⋃ ANF] (_ ∪ _) |- _ => inversion H as [? H'|]; [inversion H'|]; subst; clear H
+           | H : [⋃ [⋂ ANF]] (_ ∪ _) |- _ => inversion H as [? H'|];
+                                               [inversion H' as [? H''|]; inversion H''|]; subst; clear H
+           | H : [⋃ _] (_ ∩ _) |- _ => inv H
+           | H : [⋃ _] (_ → _) |- _ => inv H
+           | H : [⋃ _] (Var _) |- _ => inv H
+           | H : [⋃ _] ω |- _ => inv H
+           | H : [⋂ ANF] (_ ∩ _) |- _ => inversion H as [? H'|]; [inversion H'|]; subst; clear H
+           | H : [⋃ [⋂ ANF]] (_ ∪ _) |- _ => inversion H as [? H'|];
+                                               [inversion H' as [? H''|]; inversion H''|]; subst; clear H
+           | H : [⋂ _] (_ ∪ _) |- _ => inv H
+           | H : [⋂ _] (_ → _) |- _ => inv H
+           | H : [⋂ _] (Var _) |- _ => inv H
+           | H : [⋂ _] ω |- _ => inv H
+           | H : ANF (ω → _) |- _ => inversion H as [|? ? H'|];
+                                       [inversion H' as [? H''|]; inversion H''|]; subst; clear H
+           | H : ANF (_ → _) |- _ => inv H
+           | H : ANF (_ ∩ _) |- _ => inversion H
+           | H : ANF (_ ∪ _) |- _ => inversion H
+           | H : ANF ω |- _ => inversion H
+           | H : Omega_free (_ _ _) |- _ => inv H
+           end : SubtypeHints.
 
     (* Terms on which we'll define filters *)
     Unset Elimination Schemes.
@@ -253,6 +314,7 @@ Module Types (VAlpha : VariableAlphabet).
     | ArrowisFilter : forall σ τ, isFilter (σ → τ)
     | InterisFilter : forall σ τ, isFilter σ -> isFilter τ -> isFilter (σ ∩ τ).
     Set Elimination Schemes.
+    Hint Constructors isFilter : SubtypeHints.
 
     (* The recursion scheme uses P ω as an inductive hypothesis *)
     Lemma isFilter_ind : forall P : term -> Prop,
@@ -288,16 +350,27 @@ Module Types (VAlpha : VariableAlphabet).
     | F_ArrowUnion : forall σ1 σ2 τ1 τ2 ρ : term, ↑[σ1 ∩ σ2] (τ1 → ρ) ∩ (τ2 → ρ) -> ↑[σ1 ∩ σ2] τ1 ∪ τ2 → ρ
     where "↑[ σ ] τ" := (Filter σ τ).
 
-    Create HintDb FilterHints.
-    Hint Constructors Filter : FilterHints.
-    Hint Constructors isFilter : FilterHints.
+    Hint Constructors Filter : SubtypeHints.
+    Hint Constructors isFilter : SubtypeHints.
+
+    Inductive Ideal : term -> term -> Prop :=
+    | I_Refl : forall σ : term,  [⋃ ANF] σ -> ↓[σ] σ
+    | I_Inter1 : forall σ τ ρ : term, ↓[σ] τ -> ↓[σ] τ ∩ ρ
+    | I_Inter2 : forall σ τ ρ : term, ↓[σ] ρ -> ↓[σ] τ ∩ ρ
+    | I_Union : forall σ τ ρ : term, ↓[σ] τ -> ↓[σ] ρ -> ↓[σ] τ ∪ ρ
+    | I_Arrow1 : forall σ1 σ2 τ1 τ2 : term, [⋂ ANF] σ1 -> ↑[σ1] σ2 -> ↓[τ1] τ2 -> ↓[σ1 → τ1] σ2 → τ2
+    | I_Arrow2 : forall σ τ1 τ2 : term, ↑[ω] σ -> ↓[τ1] τ2 -> ↓[ω → τ1] σ → τ2
+    | I_Union1 : forall σ1 σ2 τ : term, [⋃ ANF] σ2 -> ↓[σ1] τ -> ↓[σ1 ∪ σ2] τ
+    | I_Union2 : forall σ1 σ2 τ : term, [⋃ ANF] σ1 -> ↓[σ2] τ -> ↓[σ1 ∪ σ2] τ
+    where "↓[ σ ] τ" := (Ideal σ τ).
+
+    Hint Constructors Ideal : SubtypeHints.
 
     Lemma Filter_correct : forall σ τ, ↑[σ] τ -> σ ≤ τ.
-    Proof with auto with SubtypeHints.
+    Proof with auto using Inter_inf_dual, Union_sup_dual with SubtypeHints.
       intros ? ? H.
       induction H...
       - etransitivity; [eassumption|]...
-      - transitivity ω...
       - etransitivity; [|apply R_InterDistrib]...
       - etransitivity; [|apply R_UnionDistrib]...
     Qed.
@@ -307,7 +380,10 @@ Module Types (VAlpha : VariableAlphabet).
     Proof.
       intros ? ? H; induction H; auto; constructor; auto.
     Qed.
-    Hint Resolve Filter_isFilter : FilterHints.
+    Hint Extern 0 (isFilter ?σ) =>
+      match goal with
+      | H : ↑[?σ] _ |- _ => apply (Filter_isFilter _ _ H)
+      end : SubtypeHints.
 
     (* cast ρ to σ (may produce new goals) *)
     Ltac cast_filter ρ σ :=
@@ -321,30 +397,32 @@ Module Types (VAlpha : VariableAlphabet).
 
     Section Filter.
       Variable σ : term.
-      Hypothesis Fσ : isFilter σ.
 
       Lemma FilterInter : forall τ ρ, ↑[σ] τ ∩ ρ -> ↑[σ] τ /\ ↑[σ] ρ.
-        intros ? ? H ; induction Fσ; split; inv H;
-          auto with FilterHints;
+        intros ? ? H.
+        assert (Fσ : isFilter σ) by (auto with SubtypeHints).
+        induction Fσ; split; inv H;
+          auto with SubtypeHints;
           lazymatch goal with
-          | H : ω <> ω |- _ => contradiction
           (* Inductive case *)
-          | IH : _ -> ↑[?σ] ?τ -> _, H : ↑[?σ] ?τ |- ↑[?ρ] _ =>
+          | IH : ↑[?σ] ?τ -> _, H : ↑[?σ] ?τ |- ↑[?ρ] _ =>
             (* cast ρ to σ *)
-            cast_filter ρ σ;
+            cast_filter ρ σ; trivial;
               (* apply the inductive hypothesis *)
-              trivial; apply IH; trivial with FilterHints
+              apply IH; trivial
           end.
       Qed.
 
       Lemma FilterUnion : forall τ ρ, ↑[σ] τ ∪ ρ -> ↑[σ] τ \/ ↑[σ] ρ.
-        intros ? ? H; induction Fσ; inv H; auto;
+        intros ? ? H.
+        assert (Fσ : isFilter σ) by (auto with SubtypeHints).
+        induction Fσ; inv H; auto;
           lazymatch goal with
-          | H : ω <> ω |- _ => contradiction
           (* Inductive case *)
-          | IH : _ -> ↑[?σ] ?τ1 ∪ ?τ2 -> ?prop, H : ↑[?σ] ?τ1 ∪ ?τ2 |- ↑[?ρ] ?τ1 \/ ↑[?ρ] ?τ2 =>
+          | IH : ↑[?σ] ?τ1 ∪ ?τ2 -> ?prop, H : ↑[?σ] ?τ1 ∪ ?τ2 |- ↑[?ρ] ?τ1 \/ ↑[?ρ] ?τ2 =>
             (* apply the inductive hypothesis *)
-            assert (H' : prop) by (apply IH; trivial with FilterHints); destruct H'; [left|right];
+            destruct (IH H); [left|right];
+            (* cast ρ to σ *)
               cast_filter ρ σ; assumption
           end.
       Qed.
@@ -352,12 +430,9 @@ Module Types (VAlpha : VariableAlphabet).
 
     Section Filter_closed.
       Ltac filter_closed :=
-        trivial with FilterHints;
+        trivial with SubtypeHints;
         match goal with
         (* Trivial cases *)
-        | H : ω <> ω |- _ => contradiction
-        | |- _ <> _ => discriminate
-        | H : ↑[?σ] _ |- isFilter ?σ => apply (Filter_isFilter _ _ H)
         | |- ↑[ω] ω => apply F_Refl; constructor
 
         (* Destruct the hypothesis *)
@@ -374,7 +449,7 @@ Module Types (VAlpha : VariableAlphabet).
         (* Cast the (→) up in the hypotheses *)
         | IH : (forall τ1 τ2, ↑[?σ] _ -> _), H : ↑[?σ] ?τ1 → ?ρ1, H1 : ?τ2 ≤ ?τ1, H2 : ?ρ1 ≤ ?ρ2
           |- _ =>
-          assert (↑[σ] τ2 → ρ2) by (apply (IH (τ1 → ρ1) _ H); is_subtype_heuristic);
+          assert (↑[σ] τ2 → ρ2) by (apply (IH (τ1 → ρ1) _ H); auto with SubtypeHints);
           clear H; filter_closed
         | H : ↑[?σ1 ∩ ?σ2] ?τ1 → ?ρ1, H1 : ?τ2 ≤ ?τ1, H2 : ?ρ1 ≤ ?ρ2 |- ↑[?σ1 ∩ ?σ2] _ =>
           assert (↑[σ1 ∩ σ2] τ2 → ρ2) by (apply (F_Arrow2 σ1 σ2 τ1 τ2 ρ1 ρ2 H H1 H2));
@@ -390,17 +465,17 @@ Module Types (VAlpha : VariableAlphabet).
         (* Final step: induction *)
         | IH : (forall τ1 τ2, ↑[?σ] τ1 -> τ1 ≤ τ2 -> _), le_H : ?τ1 ≤ ?τ2, H : ↑[?σ] ?τ1
           |- ↑[?ρ] ?τ2 =>
-          cast_filter ρ σ; trivial with FilterHints; apply (IH τ1 τ2 H le_H)
+          cast_filter ρ σ; trivial with SubtypeHints; apply (IH τ1 τ2 H le_H)
         (* Inductive case where the goal is ↑[σ] (τ → ρ), and ρ is equivalent to ω *)
         | IH : (forall τ1 τ2, ↑[ω] τ1 -> τ1 ≤ τ2 -> _), le_H : ?τ1 ≤ ?τ2, H : ↑[ω] ?τ1
           |- ↑[_] _ → ?τ2 =>
-          apply F_OmegaTop; trivial with FilterHints; apply F_Omega; apply (IH τ1 τ2 H le_H)
+          apply F_OmegaTop; trivial with SubtypeHints; apply F_Omega; apply (IH τ1 τ2 H le_H)
         (* All the other cases for (→) *)
-        | |- ↑[_ → _] _ → _ => auto with FilterHints; constructor; auto with SubtypeHints;
+        | |- ↑[_ → _] _ → _ => auto with SubtypeHints; constructor; auto with SubtypeHints;
                                repeat match goal with
                                       | H : ↑[ω] _ |- _ => apply (Filter_correct _ _) in H
-                                      end; is_subtype_heuristic
-        | _ => auto with FilterHints
+                                      end; auto with SubtypeHints
+        | _ => auto with SubtypeHints
         end.
 
       Lemma Filter_closed : forall σ, isFilter σ -> forall τ1 τ2, ↑[σ] τ1 -> τ1 ≤ τ2 -> ↑[σ] τ2.
@@ -418,31 +493,404 @@ Module Types (VAlpha : VariableAlphabet).
 
     (* Unicode starts dying below this point *)
 
-    Inductive Generalize (c : term -> term -> term) (P : term -> Prop) : term -> Prop :=
-    | G_nil : forall σ, P σ -> Generalize c P σ
-    | G_cons : forall σ τ, Generalize c P σ -> Generalize c P τ -> Generalize c P (c σ τ).
+    Lemma Ideal_correct : forall σ τ, ↓[σ] τ -> τ ≤ σ.
+    Proof with auto using Inter_inf_dual, Union_sup_dual with SubtypeHints.
+      intros ? ? H.
+      induction H...
+    Qed.
+    Hint Resolve Ideal_correct : SubtypeHints.
 
-    (* Notations: [ ⋂ P ] x == x is a generalized intersection of terms verifying P *)
-    Notation "[ ⋂ P ]" := (Generalize (∩) P).
-    Notation "[ ⋃ P ]" := (Generalize (∪) P).
+    Lemma Ideal_isDANF: forall σ τ, ↓[σ] τ -> [⋃ ANF] σ.
+    Proof.
+      intros ? ? H; induction H; trivial.
+      - constructor.
+        constructor; trivial.
+      - constructor.
+        constructor 3; trivial.
+      - constructor 2; trivial.
+      - constructor 2; trivial.
+    Qed.
+    Hint Resolve Ideal_isDANF : SubtypeHints.
 
-    Inductive ANF : term -> Prop :=
-    | VarisANF : forall α, ANF (Var α)
-    | ArrowisANF : forall σ τ, [⋂ ANF] σ -> [⋃ ANF] τ -> ANF (σ → τ)
-    | ArrowisANF' : forall τ, [⋃ ANF] τ -> ANF (ω → τ).
+    (* cast ρ to σ (may produce new goals) *)
+    Ltac cast_ideal ρ σ :=
+      lazymatch σ with
+      | ω => apply F_OmegaTop
+      | _ => lazymatch ρ with
+             | σ ∩ _ => apply F_Inter1
+             | _ ∩ σ => apply F_Inter2
+             end
+      end.
 
-    Definition CANF (σ : term) : Prop := σ = ω \/ [⋂ [⋃ ANF]] σ.
-    Definition DANF (σ : term) : Prop := σ = ω \/ [⋃ [⋂ ANF]] σ.
+    Section Ideal.
+      Variable σ : term.
+      Hypothesis Iσ : [⋃ ANF] σ.
 
-    Inductive Omega_free : term -> Prop :=
-    | Of_Var : forall α, Omega_free (Var α)
-    | Of_Union : forall σ τ, Omega_free σ -> Omega_free τ -> Omega_free (Union σ τ)
-    | Of_Inter : forall σ τ, Omega_free σ -> Omega_free τ -> Omega_free (Inter σ τ)
-    | Of_Arrow1 : forall σ, Omega_free σ -> Omega_free (Arr ω σ)
-    | Of_Arrow2 : forall σ τ, Omega_free σ -> Omega_free τ -> Omega_free (Arr σ τ).
+      Lemma IdealUnion : forall τ ρ, ↓[σ] τ ∪ ρ -> ↓[σ] τ /\ ↓[σ] ρ.
+        intros ? ? H ; induction Iσ; split; inv H; auto.
+        - constructor.
+          inv H1; trivial.
+          inv H.
+          constructor.
+          inv H1; trivial.
+          inv H.
+        - inv H0.
+        - inv H0.
+        - inv H0.
+        - inv H0.
+        - inv H0.
+        - constructor; trivial.
+          constructor; trivial.
+        - constructor; trivial.
+          apply IHg1; trivial.
+        - constructor 8; trivial.
+          apply IHg2; trivial.
+        - constructor 8; trivial.
+          constructor; trivial.
+        - constructor; trivial.
+          apply IHg1; trivial.
+        - constructor 8; trivial.
+          apply IHg2; trivial.
+      Qed.
 
-    Create HintDb FreeHints.
-    Hint Constructors Omega_free : FreeHints.
+      Lemma IdealInter : forall τ ρ, ↓[σ] τ ∩ ρ -> ↓[σ] τ \/ ↓[σ] ρ.
+        intros ? ? H; induction Iσ; inv H; auto.
+        - inv H1.
+          inv H.
+        - inv H0.
+        - inv H0.
+        - apply IHg1 in H4; trivial.
+          inv H4; [left|right];
+            constructor; trivial.
+        - apply IHg2 in H4; trivial.
+          inv H4; [left|right];
+            constructor 8; trivial.
+      Qed.
+    End Ideal.
+
+    Lemma interanf_isFilter : forall σ, [ ⋂ ANF] σ -> isFilter σ.
+    Proof.
+      induction 1.
+      inversion H; auto with SubtypeHints.
+      constructor; trivial.
+    Qed.
+
+    Lemma Uanf_ind : forall P : term -> Prop,
+        (forall a, P (Var a)) ->
+        (forall s t, ([⋃ ANF] s -> P s) -> ([⋃ ANF] t -> P t) -> P (s ∪ t)) ->
+        (forall s t, ([⋃ ANF] t -> P t) -> P (s → t)) ->
+        (forall s, [⋃ ANF] s -> P s).
+      intros P fV fU fA.
+      refine (fix foo (s : term) := match s with
+                                    | Var a => fun _ => fV a
+                                    | Arrow s t => fun _ => fA _ t (foo t)
+                                    | Union s t => fun _ => fU s t (foo s) (foo t)
+                                    | Inter s t => fun pf => _
+                                    | Omega => fun pf => _
+                                    end).
+      inv pf.
+      inv H.
+      inv pf.
+      inv H.
+    Defined.
+    Print Uanf_ind.
+
+    Lemma idealnoomega : forall σ, ~ ↓[ σ] Omega.
+    Proof.
+      intros; red.
+      induction σ.
+      intro H; inv H.
+      intro H; inv H.
+      intro H; inv H.
+      intro H; inv H; auto.
+      intro H; inv H.
+      inv H0.
+      inv H.
+    Qed.
+
+    Section Ideal_closed.
+      Lemma Ideal_closed : forall σ, [⋃ ANF] σ -> forall τ1 τ2, ↓[σ] τ1 -> τ2 ≤ τ1 -> ↓[σ] τ2.
+      Proof.
+        intro σ.
+        apply (Uanf_ind (fun σ => forall τ1 τ2 : term, ↓[ σ] τ1 -> τ2 ≤ τ1 -> ↓[ σ] τ2)); intros.
+        - induction H0.
+          constructor; trivial.
+          constructor 3; trivial.
+          inv H; trivial.
+          inv H; trivial.
+          inv H; trivial.
+          constructor; trivial.
+          inv H.
+          inv H.
+          inv H.
+          constructor; auto.
+          constructor 3; auto.
+          inv H; constructor; auto.
+          inv H.
+          inv H3.
+          constructor; trivial.
+          inv H4.
+          constructor; trivial.
+          constructor 3; trivial.
+          constructor; trivial.
+          inv H.
+          inv H.
+          inv H.
+          trivial.
+          auto.
+        - induction H2.
+          constructor; trivial.
+          constructor 3; trivial.
+          apply IdealInter in H1.
+          inv H1; trivial.
+          apply IdealInter in H1.
+          inv H1; trivial.
+          eapply Ideal_isDANF; eassumption.
+          eapply Ideal_isDANF; eassumption.
+          eapply Ideal_isDANF; eassumption.
+          apply IdealUnion in H1; inv H1; trivial.
+          eapply Ideal_isDANF; eassumption.
+          constructor 2; trivial.
+          eapply Ideal_isDANF; eassumption.
+          constructor 2; trivial.
+          eapply Ideal_isDANF; eassumption.
+          apply IdealUnion in H1; inv H1; trivial.
+          eapply Ideal_isDANF; eassumption.
+          constructor 2; trivial.
+          eapply Ideal_isDANF; eassumption.
+          constructor 2; trivial.
+          eapply Ideal_isDANF; eassumption.
+          constructor; trivial.
+          + inv H1.
+            constructor 7; trivial.
+            eapply H.
+            eapply Ideal_isDANF; eassumption.
+            eassumption.
+            auto with SubtypeHints.
+            constructor 8; trivial.
+            eapply H0.
+            eapply Ideal_isDANF; eassumption.
+            eassumption.
+            auto with SubtypeHints.
+          + inv H1.
+            constructor 7; trivial.
+            eapply H.
+            eapply Ideal_isDANF; eassumption.
+            eassumption.
+            auto with SubtypeHints.
+            constructor 8; trivial.
+            eapply H0.
+            eapply Ideal_isDANF; eassumption.
+            eassumption.
+            auto with SubtypeHints.
+          + inv H1.
+            constructor; auto.
+            constructor 3; auto.
+            constructor 7; trivial.
+            eapply H.
+            eapply Ideal_isDANF; eassumption.
+            eassumption.
+            auto with SubtypeHints.
+            constructor 8; trivial.
+            eapply H0.
+            eapply Ideal_isDANF; eassumption.
+            eassumption.
+            auto with SubtypeHints.
+          + inv H1.
+            inv H4.
+            inv H1.
+            constructor.
+            apply IHSubtype1.
+            constructor 7. trivial. constructor. trivial.
+            apply IHSubtype2.
+            constructor 8. trivial. constructor. trivial.
+            constructor.
+            apply IHSubtype1; trivial.
+            apply IHSubtype2; trivial.
+            constructor 7; trivial.
+            eapply H.
+            eapply Ideal_isDANF; eassumption.
+            eassumption.
+            auto with SubtypeHints.
+            constructor 8; trivial.
+            eapply H0.
+            eapply Ideal_isDANF; eassumption.
+            eassumption.
+            auto with SubtypeHints.
+          + apply IdealUnion in H1.
+            inv H1.
+            apply IdealInter in H2.
+            inv H2.
+            constructor; trivial.
+            apply IdealInter in H3.
+            inv H3.
+            constructor; trivial.
+            constructor 3; constructor; trivial.
+            eapply Ideal_isDANF; eassumption.
+            eapply Ideal_isDANF; eassumption.
+            eapply Ideal_isDANF; eassumption.
+          + inv H1.
+            constructor; trivial.
+            eapply H.
+            eapply Ideal_isDANF; eassumption.
+            eassumption.
+            auto with SubtypeHints.
+            constructor 8; trivial.
+            eapply H0.
+            eapply Ideal_isDANF; eassumption.
+            eassumption.
+            auto with SubtypeHints.
+          + inv H1.
+            constructor; trivial.
+            eapply H.
+            eapply Ideal_isDANF; eassumption.
+            eassumption.
+            constructor.
+            constructor 8; trivial.
+            eapply H0.
+            eapply Ideal_isDANF; eassumption.
+            eassumption.
+            constructor.
+          + inv H1.
+            constructor; trivial.
+            eapply H.
+            eapply Ideal_isDANF; eassumption.
+            eassumption.
+            constructor.
+            constructor 8; trivial.
+            eapply H0.
+            eapply Ideal_isDANF; eassumption.
+            eassumption.
+            constructor.
+          + trivial.
+          + auto.
+        - induction H1.
+          constructor; trivial.
+          constructor 3; trivial.
+          inv H0; trivial.
+          inv H0; trivial.
+          inv H0; trivial.
+          constructor; trivial.
+          inv H0.
+          inv H3.
+          inv H0.
+          inv H4.
+          inv H0.
+          inv H2.
+          inv H0.
+          apply IdealInter in H7.
+          destruct H7.
+          constructor.
+          constructor; trivial.
+          constructor 3.
+          constructor; trivial.
+          eapply Ideal_isDANF; eassumption.
+          apply IdealInter in H6.
+          destruct H6.
+          constructor.
+          constructor 6; trivial.
+          constructor 3.
+          constructor 6; trivial.
+          eapply Ideal_isDANF; eassumption.
+          inv H0.
+          inv H3.
+          inv H0.
+          inv H3.
+          inv H0.
+          apply FilterUnion in H6.
+          destruct H6.
+          constructor.
+          constructor; trivial.
+          constructor 3.
+          constructor; trivial.
+          eapply Filter_isFilter; eassumption.
+          apply FilterUnion in H4.
+          destruct H4.
+          constructor.
+          constructor 6; trivial.
+          constructor 3.
+          constructor 6; trivial.
+          eapply Filter_isFilter; eassumption.
+          apply IdealInter in H0.
+          inv H0.
+          constructor.
+          apply IHSubtype1; trivial.
+          constructor 3.
+          apply IHSubtype2; trivial.
+          eapply Ideal_isDANF; eassumption.
+          apply IdealUnion in H0.
+          destruct H0.
+          constructor; auto.
+          eapply Ideal_isDANF; eassumption.
+          apply IdealUnion in H0.
+          destruct H0.
+          apply IdealInter in H0.
+          destruct H0.
+          constructor; trivial.
+          apply IdealInter in H1.
+          destruct H1.
+          constructor; trivial.
+          constructor 3; constructor; trivial.
+          eapply Ideal_isDANF; eassumption.
+          eapply Ideal_isDANF; eassumption.
+          eapply Ideal_isDANF; eassumption.
+          + inv H0.
+            inv H3.
+            inv H0.
+            constructor; trivial.
+            apply Filter_complete.
+            apply interanf_isFilter; trivial.
+            trivial.
+            eapply H.
+            trivial.
+            apply I_Refl.
+            trivial.
+            trivial.
+            constructor 6.
+            apply Filter_complete.
+            constructor.
+            trivial.
+            eapply H; trivial.
+            apply I_Refl; trivial.
+            trivial.
+            constructor; trivial.
+            eapply Filter_closed.
+            eapply Filter_isFilter; eassumption.
+            eassumption.
+            trivial.
+            eapply H.
+            eapply Ideal_isDANF; eassumption.
+            eassumption.
+            trivial.
+            constructor 6.
+            eapply Filter_closed.
+            eapply Filter_isFilter; eassumption.
+            eassumption.
+            trivial.
+            eapply H.
+            eapply Ideal_isDANF; eassumption.
+            eassumption.
+            trivial.
+          + inv H0.
+          + inv H0.
+            inv H3.
+            inv H0.
+            inv H3.
+            inv H0.
+            inv H2.
+            inv H0.
+            exfalso; apply idealnoomega in H7; trivial.
+            exfalso; apply idealnoomega in H6; trivial.
+          + trivial.
+          + auto.
+      Qed.
+    End Ideal_closed.
+
+    Lemma Ideal_complete : forall σ, [⋃ ANF] σ -> forall τ, τ ≤ σ -> ↓[σ] τ.
+    Proof.
+      intros; eapply Ideal_closed; try eassumption.
+      apply I_Refl; assumption.
+    Qed.
 
     (* Rewriting functions *)
 
@@ -489,7 +937,7 @@ Module Types (VAlpha : VariableAlphabet).
     Lemma deleteOmega_Omega : forall σ, σ ~= Omega -> deleteOmega σ = Omega.
     Proof.
       intros σ [_ H].
-      apply Filter_complete in H; trivial with FilterHints.
+      apply Filter_complete in H; trivial with SubtypeHints.
       induction σ; inv H; trivial; try contradiction; simpl;
         (* rewrite the induction hypotheses *)
         repeat match goal with
@@ -515,13 +963,13 @@ Module Types (VAlpha : VariableAlphabet).
         |inv IH1; inv IH2; [left|right|left |right]
         |inv IH1; inv IH2; [left|left |left |right]
         |inv IH2; inv IH1; [left|right|right|right]
-        |right]; auto with FreeHints;
+        |right]; auto with SubtypeHints;
           repeat match goal with
                  | IH : _ = _ |- _ => rewrite IH; clear IH; trivial
                  | H1 : Omega_free (deleteOmega σ), H2 : Omega_free (deleteOmega τ) |- _ =>
-                   inv H1; inv H2; now auto with FreeHints
-                 | H1 : Omega_free (deleteOmega σ) |- _ => inv H1; now auto with FreeHints
-                 | H1 : Omega_free (deleteOmega τ) |- _ => inv H1; now auto with FreeHints
+                   inv H1; inv H2; now auto with SubtypeHints
+                 | H1 : Omega_free (deleteOmega σ) |- _ => inv H1; now auto with SubtypeHints
+                 | H1 : Omega_free (deleteOmega τ) |- _ => inv H1; now auto with SubtypeHints
                  end.
     Qed.
 
@@ -553,7 +1001,7 @@ Module Types (VAlpha : VariableAlphabet).
     Fixpoint Inter_Distr (σ τ : term) : term :=
       match σ with
       | σ1 ∩ σ2 => (Inter_Distr σ1 τ) ∩ (Inter_Distr σ2 τ)
-      | _ => Arrow_DistrRight σ τ
+      | _ => Inter_DistrRight σ τ
       end.
 
     Fixpoint Union_DistrRight (σ τ : term) : term :=
@@ -573,73 +1021,50 @@ Module Types (VAlpha : VariableAlphabet).
       | Var α => Var α
       | σ → τ => Arrow_Distr (_DANF σ) (_CANF τ)
       | σ ∩ τ => (_CANF σ) ∩ (_CANF τ)
-      | σ ∪ τ => Union_Distr (_CANF σ) (_CANF τ)
+      | σ ∪ τ => Inter_Distr (_CANF σ) (_CANF τ)
       | ω => ω
       end
     with _DANF (σ : term) : term :=
            match σ with
            | Var α => Var α
            | σ → τ => Arrow_Distr (_DANF σ) (_CANF τ)
-           | σ ∩ τ => Inter_Distr (_DANF σ) (_DANF τ)
+           | σ ∩ τ => Union_Distr (_DANF σ) (_DANF τ)
            | σ ∪ τ => (_DANF σ) ∪ (_DANF τ)
            | ω => ω
            end.
 
-    Inductive Structural_Order : term -> term -> Prop :=
-    | SO_Arrow1 : forall σ τ, Structural_Order σ (σ → τ)
-    | SO_Arrow2 : forall σ τ, Structural_Order τ (σ → τ)
-    | SO_Inter1 : forall σ τ, Structural_Order σ (σ ∩ τ)
-    | SO_Inter2 : forall σ τ, Structural_Order τ (σ ∩ τ)
-    | SO_Union1 : forall σ τ, Structural_Order σ (σ ∪ τ)
-    | SO_Union2 : forall σ τ, Structural_Order τ (σ ∪ τ).
+    Fixpoint size (σ : term) : nat :=
+      match σ with
+      | Var α => 0
+      | σ → τ => S((size σ) + (size τ))
+      | σ ∩ τ => S((size σ) + (size τ))
+      | σ ∪ τ => S((size σ) + (size τ))
+      | ω => 0
+      end.
+    Definition pair_size (x : term * term) : nat :=
+      let (s,t) := x in size s + size t.
 
-    Lemma wf_structural : well_founded Structural_Order.
-    Proof.
-      red; intro σ.
-      induction σ; constructor; intros τ H; inv H; trivial.
+    Definition main_algo_order : relation (term * term) :=
+      fun x y =>
+        pair_size x < pair_size y.
+
+    Definition wf_main_algo : well_founded main_algo_order :=
+      ltac:(apply well_founded_ltof).
+
+    Definition main_algo : (term * term) -> bool.
+      refine (Fix wf_main_algo _ _).
+      intros [s t] rec.
+      refine (match (s,t) as x return x = (s,t) -> bool with
+              | (_, Omega) => fun _ => true
+              | (Union s1 s2, _) => fun eq => andb (rec (s1,t) _) (rec (s2,t) _)
+              | (_, Inter t1 t2) => fun eq => andb (rec (s,t1) _) (rec (s,t2) _)
+              | (Inter s1 s2, _) => fun eq => orb (rec (s1,t) _) (rec (s2,t) _)
+              | (_, Union t1 t2) => fun eq => orb (rec (s,t1) _) (rec (s,t2) _)
+              | (Arrow s1 s2, Arrow t1 t2) => fun eq => andb (rec (t1,s1) _) (rec (s2,t2) _)
+              | _ => fun _ => if term_eq_dec s t then true else false
+              end eq_refl); inv eq;
+        red; unfold pair_size; simpl; omega.
     Defined.
-
-    Section wf_pair.
-      Variables A B : Type.
-      Variables (R_A : relation A) (R_B : relation B).
-      Hypotheses (wf_A : well_founded R_A) (wf_B : well_founded R_B).
-
-      Definition pair_order : relation (A * B) :=
-        fun c1 c2 =>
-          let (a,b) := c1 in
-          let (a',b') := c2 in
-          (R_A a a' /\ (R_B b b' \/ b = b')) \/
-          (R_B b b' /\ (R_A a a' \/ a = a')).
-
-      Check (lexprod A (fun _ => B) R_A (fun _ => R_B)).
-
-      (* TODO: lexicographic order *)
-      Lemma acc_pair : forall a, Acc R_A a -> forall b, Acc R_B b -> Acc pair_order (a,b).
-      Proof.
-        intros a Aa.
-        induction Aa; induction Ab.
-        constructor.
-        intros [a' b'] H'.
-        simple inversion H'.
-        red in H'.
-        decompose [and or] H'; clear H'.
-        
-      Defined.
-
-      Lemma wf_pair : well_founded pair_order.
-      Proof.
-        red; intros [a b].
-        constructor.
-        intros [a' b'] H.
-        red in H.
-        decompose [and or] H.
-        refine (Fix wf_A (fun x => Acc pair_order (x, b')) _ a').
-        intros a'' Ha.
-        refine (Fix wf_B (fun x => Acc pair_order (a', x)) _ b).
-        intros b' Hb.
-
-      Defined.
-    End wf_pair.
 
     Lemma Arrow_DistrRight_equiv : forall σ τ, Arrow_DistrRight σ τ ~= σ → τ.
     Proof.
@@ -656,82 +1081,336 @@ Module Types (VAlpha : VariableAlphabet).
       auto with SubtypeHints.
     Qed.
 
-    Fixpoint size (t : term) : nat :=
-      match t with
-      | Var _ => 0
-      | Inter s t => S ((size s) + (size t))
-      | Union s t => S ((size s) + (size t))
-      | Arr  s t => S ((size s) + (size t))
-      | Omega => 0
-      end.
+    Lemma Inter_DistrRight_equiv : forall σ τ, Inter_DistrRight σ τ ~= σ ∪ τ.
+    Proof.
+      intros σ τ; induction τ as [| |? IH1 ? IH2| |]; simpl; try reflexivity.
+      rewrite IH1, IH2.
+      auto with SubtypeHints.
+    Qed.
 
-    Fixpoint metric_CANF (t : term) : nat :=
-      match t with
-      | Var _ => 0
-      | Inter s t => metric_CANF s + metric_CANF t
-      | Union (Inter s t) r => S (metric_CANF s + metric_CANF t + metric_CANF r)
-      | Union s (Inter t r) => S (metric_CANF s + metric_CANF t + metric_CANF r)
-      | Union s t => metric_CANF s + metric_CANF t
-      | Arr s t => metric_CANF s + metric_DANF t
-      | Omega => 0
-      end
-    with metric_DANF (t : term) : nat :=
-           match t with
-           | Var _ => 0
-           | Inter (Union s t) r => S (metric_DANF s + metric_DANF t + metric_DANF r)
-           | Inter s (Union t r) => S (metric_DANF s + metric_DANF t + metric_DANF r)
-           | Inter s t => metric_DANF s + metric_DANF t
-           | Union s t => metric_DANF s + metric_DANF t
-           | Arr s t => metric_CANF s + metric_DANF t
-           | Omega => 0
-           end.
+    Lemma Inter_Distr_equiv : forall σ τ, Inter_Distr σ τ ~= σ ∪ τ.
+    Proof.
+      intros σ τ; induction σ as [| |? IH1 ? IH2| |]; simpl;
+        try apply Inter_DistrRight_equiv.
+      rewrite IH1, IH2.
+      assert (forall s t, s ∪ t ~= t ∪ s) by auto with SubtypeHints.
+      rewrite (H σ2 τ).
+      rewrite (H σ1 τ).
+      rewrite (H (σ1 ∩ σ2) τ).
+      auto with SubtypeHints.
+    Qed.
 
-    Lemma combine_inheritance : forall f g P s, Generalize f P s -> Generalize f (Generalize g P) s.
+    Lemma Union_DistrRight_equiv : forall σ τ, Union_DistrRight σ τ ~= σ ∩ τ.
+    Proof.
+      intros σ τ; induction τ as [| | |? IH1 ? IH2|]; simpl; try reflexivity.
+      rewrite IH1, IH2.
+      auto with SubtypeHints.
+    Qed.
+
+    Lemma Union_Distr_equiv : forall σ τ, Union_Distr σ τ ~= σ ∩ τ.
+    Proof.
+      intros σ τ; induction σ as [| | |? IH1 ? IH2|]; simpl;
+        try apply Union_DistrRight_equiv.
+      rewrite IH1, IH2.
+      assert (forall s t, s ∩ t ~= t ∩ s) by auto with SubtypeHints.
+      rewrite (H σ2 τ).
+      rewrite (H σ1 τ).
+      rewrite (H (σ1 ∪ σ2) τ).
+      auto with SubtypeHints.
+    Qed.
+
+    Lemma _CANF_equiv : forall σ, _CANF σ ~= σ /\ _DANF σ ~= σ.
+    Proof.
+      intro σ;
+        induction σ as [?
+                          |? [IH1 IH2] ? [IH3 IH4]
+                          |? [IH1 IH2] ? [IH3 IH4]
+                          |? [IH1 IH2] ? [IH3 IH4]|];
+        simpl; split; try reflexivity.
+      rewrite Arrow_Distr_equiv, IH2, IH3.
+      reflexivity.
+      rewrite Arrow_Distr_equiv, IH2, IH3.
+      reflexivity.
+      rewrite IH1, IH3.
+      reflexivity.
+      rewrite Union_Distr_equiv, IH2, IH4.
+      reflexivity.
+      rewrite Inter_Distr_equiv, IH1, IH3.
+      reflexivity.
+      rewrite IH2, IH4.
+      reflexivity.
+    Qed.
+
+    Lemma Arrow_Distr_right_nf : forall σ τ, (σ = ω \/ [⋂ ANF] σ) -> [⋂ [⋃ ANF]] τ -> [⋂ ANF] (Arrow_DistrRight σ τ).
+    Proof.
+      intros.
+      induction τ; simpl.
+      - constructor.
+        inv H.
+        constructor 3.
+        repeat constructor.
+        constructor; trivial.
+        repeat constructor.
+      - constructor.
+        inv H.
+        constructor 3.
+        inv H0; trivial.
+        constructor; trivial.
+        inv H0; trivial.
+      - constructor 2.
+        inv H0.
+        inv H1.
+        inv H0.
+        auto.
+        inv H0.
+        inv H1.
+        inv H0.
+        auto.
+      - constructor.
+        inv H.
+        constructor 3.
+        inv H0; trivial.
+        constructor; trivial.
+        inv H0; trivial.
+      - inv H0.
+        inv H1.
+        inv H0.
+    Qed.
+
+    Lemma Arrow_Distr_nf : forall σ τ, DANF σ -> [⋂ [⋃ ANF]] τ -> [⋂ ANF] (Arrow_Distr σ τ).
+    Proof.
+      intros; induction σ; simpl.
+      - apply Arrow_Distr_right_nf; trivial.
+        right; repeat constructor.
+      - apply Arrow_Distr_right_nf; trivial.
+        inv H; auto.
+        right; inv H1.
+        inv H.
+        constructor; trivial.
+      - apply Arrow_Distr_right_nf; trivial.
+        inv H; auto.
+        right.
+        inv H1; trivial.
+      - constructor 2.
+        inv H.
+        inv H1.
+        inv H1.
+        inv H.
+        inv H1.
+        apply IHσ1.
+        right; trivial.
+        inv H.
+        inv H1.
+        inv H1.
+        inv H.
+        inv H1.
+        apply IHσ2.
+        right; trivial.
+      - apply Arrow_Distr_right_nf; trivial.
+        left; trivial.
+    Qed.
+
+    Lemma Inter_DistrRight_nf : forall σ τ, [⋃ ANF] σ -> [⋂ [⋃ ANF]] τ -> [⋂ [⋃ ANF]] (Inter_DistrRight σ τ).
+    Proof.
+      intros; induction τ; simpl.
+      - constructor.
+        constructor 2; trivial.
+        repeat constructor.
+      - constructor.
+        constructor 2; trivial.
+        inv H0; trivial.
+      - inv H0.
+        inv H1.
+        inv H0.
+        constructor 2; auto.
+      - constructor.
+        constructor 2; trivial.
+        inv H0; trivial.
+      - inv H0.
+        inv H1.
+        inv H0.
+    Qed.
+
+    Lemma Inter_Distr_nf : forall σ τ, [⋂ [⋃ ANF]] σ -> [⋂ [⋃ ANF]] τ -> [⋂ [⋃ ANF]] (Inter_Distr σ τ).
+    Proof.
+      intros; induction σ; simpl.
+      - apply Inter_DistrRight_nf; trivial.
+        repeat constructor.
+      - apply Inter_DistrRight_nf; trivial.
+        constructor.
+        inv H.
+        inv H1; trivial.
+      - inv H.
+        inv H1.
+        inv H.
+        constructor 2; auto.
+      - apply Inter_DistrRight_nf; trivial.
+        inv H; trivial.
+      - inv H.
+        inv H1.
+        inv H.
+    Qed.
+
+    Lemma Union_DistrRight_nf : forall σ τ, [⋂ ANF] σ -> [⋃ [⋂ ANF]] τ -> [⋃ [⋂ ANF]] (Union_DistrRight σ τ).
+    Proof.
+      intros; induction τ; simpl.
+      - constructor.
+        constructor 2; trivial.
+        repeat constructor.
+      - constructor.
+        constructor 2; trivial.
+        inv H0; trivial.
+      - inv H0.
+        constructor.
+        constructor 2; auto.
+      - inv H0.
+        inv H1.
+        inv H0.
+        constructor 2; auto.
+      - inv H0.
+        inv H1.
+        inv H0.
+    Qed.
+
+    Lemma Union_Distr_nf : forall σ τ, [⋃ [⋂ ANF]] σ -> [⋃ [⋂ ANF]] τ -> [⋃ [⋂ ANF]] (Union_Distr σ τ).
+    Proof.
+      intros; induction σ; simpl.
+      - apply Union_DistrRight_nf; trivial.
+        repeat constructor.
+      - apply Union_DistrRight_nf; trivial.
+        constructor.
+        inv H.
+        inv H1; trivial.
+      - apply Union_DistrRight_nf; trivial.
+        inv H; trivial.
+      - inv H.
+        inv H1.
+        inv H.
+        constructor 2; auto.
+      - inv H.
+        inv H1.
+        inv H.
+    Qed.
+
+    Lemma general_inheritance : forall f g P s, Generalize f P s -> Generalize f (Generalize g P) s.
     Proof.
       intros ? ? ? ? H; induction H.
       - constructor; constructor; assumption.
       - constructor 2; assumption.
     Qed.
 
-    Inductive Acc_CANF (s : term) : Prop :=
-    | rec_canf : (forall t, metric_CANF t < metric_CANF s -> Acc_CANF t) -> (forall t, metric_DANF t < metric_CANF s -> Acc_DANF t) -> Acc_CANF s
-    with Acc_DANF (s : term) : Prop :=
-    | rec_danf : (forall t, metric_DANF t < metric_DANF s -> Acc_DANF t) -> (forall t, metric_CANF t < metric_DANF s -> Acc_CANF t) -> Acc_DANF s.
-
-    Lemma foo : forall n, Acc lt n.
+    Lemma _CANF_omega : forall σ, (_CANF σ = Omega -> σ = Omega) /\ (_DANF σ = Omega -> σ = Omega).
     Proof.
-      intro n; induction n.
-      constructor.
-      intros; inversion H.
-      constructor.
-      intros.
-      inversion H; clear H; subst.
-      trivial.
-      inversion IHn.
-      apply H.
-      trivial.
+      induction σ; simpl; split; intro H; try reflexivity; try solve [inv H].
+      destruct (_DANF σ1), (_CANF σ2); inv H.
+      destruct (_DANF σ1), (_CANF σ2); inv H.
+      destruct (_DANF σ1), (_DANF σ2); inv H.
+      destruct (_CANF σ1), (_CANF σ2); inv H.
     Qed.
 
-
-    Fixpoint Acc_canf s {struct s} : Acc_CANF s
-    with Acc_danf s {struct s} : Acc_DANF s.
+    Lemma _CANF_nf : forall σ, Omega_free σ -> (CANF (_CANF σ) /\ DANF (_DANF σ)).
     Proof.
-      - destruct s.
-        + constructor; simpl; intros ? H; inversion H.
-        + assert (H : Acc_CANF s1) by (exact (Acc_canf s1)).
-          inversion H; subst; clear H.
-          constructor; simpl.
-          * intros t H'.
-            apply H0.
-            admit. (* maths *)
-          * intros t H.
-            apply H1.
-            admit. (* maths *)
-        +
-      -
+      intros; induction σ; simpl.
+      - split; red; right; repeat constructor.
+      - inv H; simpl.
+        destruct (IHσ2 H1).
+        destruct H0.
+        apply _CANF_omega in H0. subst.
+        inv H1.
+        destruct (IHσ2 H1).
+        inv H2.
+        apply _CANF_omega in H4. subst.
+        inv H1.
+        split; right; [apply general_inheritance|constructor].
+        apply Arrow_Distr_right_nf; [left;reflexivity|trivial].
+        apply Arrow_Distr_right_nf; [left;reflexivity|trivial].
+        destruct (IHσ1 H2).
+        destruct (IHσ2 H3).
+        destruct H.
+        apply _CANF_omega in H; subst; inv H2.
+        destruct H0.
+        apply _CANF_omega in H0; subst; inv H2.
+        destruct H1.
+        apply _CANF_omega in H1; subst; inv H3.
+        destruct H4.
+        apply _CANF_omega in H4; subst; inv H3.
+        split; right; [apply general_inheritance|constructor].
+        apply Arrow_Distr_nf.
+        red; auto.
+        auto.
+        apply Arrow_Distr_nf.
+        red; auto.
+        auto.
+      - inv H.
+        destruct (IHσ1 H2).
+        destruct (IHσ2 H3).
+        destruct H.
+        apply _CANF_omega in H; subst; inv H2.
+        destruct H0.
+        apply _CANF_omega in H0; subst; inv H2.
+        destruct H1.
+        apply _CANF_omega in H1; subst; inv H3.
+        destruct H4.
+        apply _CANF_omega in H4; subst; inv H3.
+        split; right.
+        constructor 2; trivial.
+        apply Union_Distr_nf; trivial.
+      - inv H.
+        destruct (IHσ1 H2).
+        destruct (IHσ2 H3).
+        destruct H.
+        apply _CANF_omega in H; subst; inv H2.
+        destruct H0.
+        apply _CANF_omega in H0; subst; inv H2.
+        destruct H1.
+        apply _CANF_omega in H1; subst; inv H3.
+        destruct H4.
+        apply _CANF_omega in H4; subst; inv H3.
+        split; right.
+        apply Inter_Distr_nf; trivial.
+        constructor 2; trivial.
+      - split; left; reflexivity.
     Qed.
 
+    Section main_algo.
+      Hypothesis P : term -> term -> Prop.
+      Hypotheses (fOr : forall s, P s Omega)
+                 (fUl : forall s1 s2 t, P s1 t -> P s2 t -> P (Union s1 s2) t)
+                 (fIr : forall s t1 t2, P s t1 -> P s t2 -> P s (Inter t1 t2))
+                 (fIl : forall s1 s2 t, P s1 t -> P s2 t -> P (Inter s1 s2) t)
+                 (fUr : forall s t1 t2, P s t1 -> P s t2 -> P s (Union t1 t2))
+                 (fA : forall s1 s2 t1 t2, P t1 s1 -> P s2 t2 -> P (Arrow s1 s2) (Arrow t1 t2))
+                 (fOl : forall t, P Omega t)
+                 (fVl : forall a t, P (Var a) t)
+                 (fVr : forall s a, P s (Var a)).
 
+      Lemma main_ind : forall s t, P s t.
+        assert (forall x : term * term, let (s, t) := x in P s t).
+        refine (Fix wf_main_algo _ _).
+        intros [s t] rec.
+        refine (match (s,t) as x return let (y,z) := x in (y,z) = (s,t) -> P y z with
+                | (y, Omega) => fun _ => fOr y
+                | (Union s1 s2, z) => fun eq => fUl _ _ _ (rec (s1,z) _) (rec (s2,z) _)
+                | (y, Inter t1 t2) => fun eq => fIr _ _ _ (rec (y,t1) _) (rec (y,t2) _)
+                | (Inter s1 s2, z) => fun eq => fIl _ _ _ (rec (s1,z) _) (rec (s2,z) _)
+                | (y, Union t1 t2) => fun eq => fUr _ _ _ (rec (y,t1) _) (rec (y,t2) _)
+                | (Arrow s1 s2, Arrow t1 t2) => fun eq => fA _ _ _ _ (rec (t1,s1) _) (rec (s2,t2) _)
+                | (Omega, z) => fun _ => fOl z
+                | (Var a, z) => fun _ => fVl a z
+                | (y, Var a) => fun _ => fVr y a
+                end eq_refl); inv eq; red;
+          unfold pair_size; simpl; omega.
+        intros.
+        apply (H (s,t)).
+      Defined.
+    End main_algo.
+
+    Lemma main_algo_correct : forall s t, Bool.Is_true (main_algo (s,t)) -> Subtype s t.
+    Proof.
+      intros s t.
+      apply (main_ind (fun s t => Bool.Is_true (main_algo (s, t)) -> s ≤ t)); intros; auto with SubtypeHints.
+      unfold main_algo in H1.
+    Qed.
 
     Section BetaLemmas.
           (*
