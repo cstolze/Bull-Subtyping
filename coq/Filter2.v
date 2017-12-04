@@ -194,7 +194,7 @@ Module Types (VAlpha : VariableAlphabet).
     Hint Resolve OmegaArrow : SubtypeHints.
 
     (* Ask auto to automatically simplify the hypotheses *)
-    Hint Extern 4 => match goal with
+    Hint Extern 1 => match goal with
                      | H : ?σ ≤ ?τ ∩ ?ρ |- _ => apply Inter_inf' in H; destruct H
                      | H : ?σ ∪ ?τ ≤ ?ρ |- _ => apply Union_sup' in H; destruct H
                      | H : ω ≤ _ |- _ => try rewrite <- H; clear H
@@ -285,14 +285,16 @@ Module Types (VAlpha : VariableAlphabet).
     repeat lazymatch goal with
            | H : [⋃ ANF] (_ ∪ _) |- _ => inversion H as [? H'|]; [inversion H'|]; subst; clear H
            | H : [⋃ [⋂ ANF]] (_ ∪ _) |- _ => inversion H as [? H'|];
-                                               [inversion H' as [? H''|]; inversion H''|]; subst; clear H
+                                               [inversion H' as [? H''|]; inversion H''|];
+                                               subst; clear H
            | H : [⋃ _] (_ ∩ _) |- _ => inv H
            | H : [⋃ _] (_ → _) |- _ => inv H
            | H : [⋃ _] (Var _) |- _ => inv H
            | H : [⋃ _] ω |- _ => inv H
            | H : [⋂ ANF] (_ ∩ _) |- _ => inversion H as [? H'|]; [inversion H'|]; subst; clear H
            | H : [⋃ [⋂ ANF]] (_ ∪ _) |- _ => inversion H as [? H'|];
-                                               [inversion H' as [? H''|]; inversion H''|]; subst; clear H
+                                               [inversion H' as [? H''|]; inversion H''|];
+                                               subst; clear H
            | H : [⋂ _] (_ ∪ _) |- _ => inv H
            | H : [⋂ _] (_ → _) |- _ => inv H
            | H : [⋂ _] (Var _) |- _ => inv H
@@ -342,7 +344,9 @@ Module Types (VAlpha : VariableAlphabet).
     | F_Union2 : forall σ τ ρ : term, ↑[σ] ρ -> ↑[σ] τ ∪ ρ
     | F_Arrow1 : forall σ1 σ2 τ1 τ2 : term, σ2 ≤ σ1 -> τ1 ≤ τ2 -> ↑[σ1 → τ1] σ2 → τ2
     | F_Arrow2 : forall σ1 σ2 τ1 τ2 ρ1 ρ2 : term, ↑[σ1 ∩ σ2] τ1 → ρ1 -> τ2 ≤ τ1 -> ρ1 ≤ ρ2 -> ↑[σ1 ∩ σ2] τ2 → ρ2
-    | F_OmegaTop : forall σ τ : term, isFilter σ -> σ <> ω -> ↑[ω] τ -> ↑[σ] τ
+    | F_OmegaTopV : forall (α : 𝕍) (τ : term), ↑[ω] τ -> ↑[Var α] τ
+    | F_OmegaTopA : forall σ1 σ2 τ : term, isFilter (σ1 → σ2) -> ↑[ω] τ -> ↑[σ1 → σ2] τ
+    | F_OmegaTopI : forall σ1 σ2 τ : term, isFilter (σ1 ∩ σ2) -> ↑[ω] τ -> ↑[σ1 ∩ σ2] τ
     | F_Omega : forall σ τ : term, ↑[ω] τ -> ↑[ω] σ → τ
     | F_Inter1 : forall σ1 σ2 τ : term, isFilter σ2 -> ↑[σ1] τ -> ↑[σ1 ∩ σ2] τ
     | F_Inter2 : forall σ1 σ2 τ : term, isFilter σ1 -> ↑[σ2] τ -> ↑[σ1 ∩ σ2] τ
@@ -388,100 +392,97 @@ Module Types (VAlpha : VariableAlphabet).
     (* cast ρ to σ (may produce new goals) *)
     Ltac cast_filter ρ σ :=
       lazymatch σ with
-      | ω => apply F_OmegaTop
+      | ω => match ρ with
+             | Var _ => apply F_OmegaTopV
+             | _ → _ => apply F_OmegaTopA
+             | _ ∩ _ => apply F_OmegaTopI
+             end
       | _ => lazymatch ρ with
              | σ ∩ _ => apply F_Inter1
              | _ ∩ σ => apply F_Inter2
              end
       end.
 
-    Section Filter.
-      Variable σ : term.
-
-      Lemma FilterInter : forall τ ρ, ↑[σ] τ ∩ ρ -> ↑[σ] τ /\ ↑[σ] ρ.
-        intros ? ? H.
-        assert (Fσ : isFilter σ) by (auto with SubtypeHints).
-        induction Fσ; split; inv H;
-          auto with SubtypeHints;
-          lazymatch goal with
-          (* Inductive case *)
-          | IH : ↑[?σ] ?τ -> _, H : ↑[?σ] ?τ |- ↑[?ρ] _ =>
-            (* cast ρ to σ *)
-            cast_filter ρ σ; trivial;
-              (* apply the inductive hypothesis *)
-              apply IH; trivial
-          end.
-      Qed.
-
-      Lemma FilterUnion : forall τ ρ, ↑[σ] τ ∪ ρ -> ↑[σ] τ \/ ↑[σ] ρ.
-        intros ? ? H.
-        assert (Fσ : isFilter σ) by (auto with SubtypeHints).
-        induction Fσ; inv H; auto;
-          lazymatch goal with
-          (* Inductive case *)
-          | IH : ↑[?σ] ?τ1 ∪ ?τ2 -> ?prop, H : ↑[?σ] ?τ1 ∪ ?τ2 |- ↑[?ρ] ?τ1 \/ ↑[?ρ] ?τ2 =>
+    Lemma FilterInter : forall σ τ ρ, ↑[σ] τ ∩ ρ -> ↑[σ] τ /\ ↑[σ] ρ.
+      intros ? ? ? H.
+      assert (Fσ : isFilter σ) by (auto with SubtypeHints).
+      induction Fσ; split; inv H;
+        auto with SubtypeHints;
+        lazymatch goal with
+        (* Inductive case *)
+        | IH : ↑[?σ] ?τ -> _, H : ↑[?σ] ?τ |- ↑[?ρ] _ =>
+          (* cast ρ to σ *)
+          cast_filter ρ σ; trivial;
             (* apply the inductive hypothesis *)
-            destruct (IH H); [left|right];
+            apply IH; trivial
+        end.
+    Qed.
+
+    Lemma FilterUnion : forall σ τ ρ, ↑[σ] τ ∪ ρ -> ↑[σ] τ \/ ↑[σ] ρ.
+      intros ? ? ? H.
+      assert (Fσ : isFilter σ) by (auto with SubtypeHints).
+      induction Fσ; inv H; auto;
+        lazymatch goal with
+        (* Inductive case *)
+        | IH : ↑[?σ] ?τ1 ∪ ?τ2 -> ?prop, H : ↑[?σ] ?τ1 ∪ ?τ2 |- ↑[?ρ] ?τ1 \/ ↑[?ρ] ?τ2 =>
+          (* apply the inductive hypothesis *)
+          destruct (IH H); [left|right];
             (* cast ρ to σ *)
-              cast_filter ρ σ; assumption
-          end.
-      Qed.
-    End Filter.
+            cast_filter ρ σ; assumption
+        end.
+    Qed.
+
+    Hint Extern 4 =>
+    repeat lazymatch goal with
+           | H : ↑[ω] _ → _ |- _ => inv H; [contradiction|]
+           | H : ↑[?σ ∩ ?τ] (?ρ → _) ∩ (?ρ → _) |- _ => apply F_ArrowInter in H
+           | H : ↑[?σ ∩ ?τ] (_ → ?ρ) ∩ (_ → ?ρ) |- _ => apply F_ArrowUnion in H
+           | H : ↑[_] _ ∪ _ |- _ => apply FilterUnion in H; destruct H
+           | H : ↑[_] _ ∩ _ |- _ => apply FilterInter in H; destruct H
+           end.
 
     Section Filter_closed.
-      Ltac filter_closed :=
-        trivial with SubtypeHints;
-        match goal with
-        (* Trivial cases *)
-        | |- ↑[ω] ω => apply F_Refl; constructor
-
-        (* Destruct the hypothesis *)
-        | H : ↑[ω] _ → _ |- _ => inv H; filter_closed
-        | H : ↑[_ → _] _ → _ |- _ => inv H; filter_closed
-        | H : ↑[Var _] _ → _ |- _ => inv H; filter_closed
-        | H : ↑[_] _ ∪ _ |- _ => apply FilterUnion in H; destruct H; filter_closed
-        | H : ↑[?σ ∩ ?τ] (?ρ → _) ∩ (?ρ → _) |- _ => apply F_ArrowInter in H; filter_closed
-        | H : ↑[?σ ∩ ?τ] (_ → ?ρ) ∩ (_ → ?ρ) |- _ => apply F_ArrowUnion in H; filter_closed
-        | H : ↑[_] _ ∩ _ |- _ => apply FilterInter in H; destruct H; filter_closed
-        | H : isFilter ?σ |- _ => match σ with (* Absurd hypothesis *)
-                                  | context [(∪)] => inv H; filter_closed
-                                  end
-        (* Cast the (→) up in the hypotheses *)
-        | IH : (forall τ1 τ2, ↑[?σ] _ -> _), H : ↑[?σ] ?τ1 → ?ρ1, H1 : ?τ2 ≤ ?τ1, H2 : ?ρ1 ≤ ?ρ2
-          |- _ =>
-          assert (↑[σ] τ2 → ρ2) by (apply (IH (τ1 → ρ1) _ H); auto with SubtypeHints);
-          clear H; filter_closed
-        | H : ↑[?σ1 ∩ ?σ2] ?τ1 → ?ρ1, H1 : ?τ2 ≤ ?τ1, H2 : ?ρ1 ≤ ?ρ2 |- ↑[?σ1 ∩ ?σ2] _ =>
-          assert (↑[σ1 ∩ σ2] τ2 → ρ2) by (apply (F_Arrow2 σ1 σ2 τ1 τ2 ρ1 ρ2 H H1 H2));
-          clear H; filter_closed
-
-        (* Destruct the goal *)
-        | |- isFilter _ => constructor; filter_closed
-        | |- ↑[_] ω => apply F_OmegaTop; filter_closed
-        | |- ↑[_] _ ∩ _ => apply F_Inter; filter_closed
-        | |- ↑[_ ∩ _] ω → ω => apply F_OmegaTop; filter_closed
-        | |- ↑[ω] _ → _ => apply F_Omega; filter_closed
-
-        (* Final step: induction *)
-        | IH : (forall τ1 τ2, ↑[?σ] τ1 -> τ1 ≤ τ2 -> _), le_H : ?τ1 ≤ ?τ2, H : ↑[?σ] ?τ1
-          |- ↑[?ρ] ?τ2 =>
-          cast_filter ρ σ; trivial with SubtypeHints; apply (IH τ1 τ2 H le_H)
-        (* Inductive case where the goal is ↑[σ] (τ → ρ), and ρ is equivalent to ω *)
-        | IH : (forall τ1 τ2, ↑[ω] τ1 -> τ1 ≤ τ2 -> _), le_H : ?τ1 ≤ ?τ2, H : ↑[ω] ?τ1
-          |- ↑[_] _ → ?τ2 =>
-          apply F_OmegaTop; trivial with SubtypeHints; apply F_Omega; apply (IH τ1 τ2 H le_H)
-        (* All the other cases for (→) *)
-        | |- ↑[_ → _] _ → _ => auto with SubtypeHints; constructor; auto with SubtypeHints;
-                               repeat match goal with
-                                      | H : ↑[ω] _ |- _ => apply (Filter_correct _ _) in H
-                                      end; auto with SubtypeHints
-        | _ => auto with SubtypeHints
-        end.
-
-      Lemma Filter_closed : forall σ, isFilter σ -> forall τ1 τ2, ↑[σ] τ1 -> τ1 ≤ τ2 -> ↑[σ] τ2.
+      Lemma Filter_omega : forall σ τ, isFilter σ -> ↑[ω] τ -> ↑[σ] τ.
       Proof.
-        intros ? Fσ; induction Fσ; intros ? ? H1 H2;
-          induction H2; inv H1; filter_closed.
+        induction 1; auto with SubtypeHints.
+      Qed.
+
+      Lemma Filter_closed : forall σ τ1 τ2,
+          (forall σ' τ ρ, ↑[ σ] (σ' → ρ) ∩ (σ' → τ) -> ↑[ σ] σ' → ρ ∩ τ)
+            (forall σ' τ ρ, ↑[ σ] (σ' → ρ) ∩ (τ → ρ) -> ↑[ σ] σ' ∪ τ → ρ)
+            (forall τ ρ τ' ρ', ↑[ σ] τ' → ρ -> forall τ, ρ' : term, τ ≤ τ' -> ρ ≤ ρ' -> ↑[ σ] τ → ρ')
+          ↑[σ] τ1 -> τ1 ≤ τ2 -> ↑[σ] τ2.
+      Proof.
+        induction 2.
+        - auto with SubtypeHints.
+        - auto with SubtypeHints.
+        - auto with SubtypeHints.
+        - auto with SubtypeHints.
+        - auto with SubtypeHints.
+        - auto with SubtypeHints.
+        - admit. (* forall σ' τ ρ, ↑[ σ] (σ' → ρ) ∩ (σ' → τ) -> ↑[ σ] σ' → ρ ∩ τ *)
+        - admit. (* forall σ' τ ρ, ↑[ σ] (σ' → ρ) ∩ (τ → ρ) -> ↑[ σ] σ' ∪ τ → ρ *)
+        - auto with SubtypeHints.
+        - auto with SubtypeHints.
+        - auto with SubtypeHints.
+        - admit. (* forall τ ρ τ' ρ', ↑[ σ] τ' → ρ -> forall τ, ρ' : term, τ ≤ τ' -> ρ ≤ ρ' -> ↑[ σ] τ → ρ' *)
+        - apply Filter_omega; auto with SubtypeHints.
+        - apply Filter_omega; auto with SubtypeHints.
+        - trivial.
+        - auto with SubtypeHints.
+      Qed.
+
+      Lemma Filter_closed : forall σ τ1, ↑[σ] τ1 -> forall τ2, τ1 ≤ τ2 -> ↑[σ] τ2.
+      Proof.
+        intros σ τ1 H1.
+        assert (Fσ : isFilter σ) by (auto with SubtypeHints).
+        induction Fσ.
+        - intros τ2 H2.
+          time(induction H2; inv H1; auto with SubtypeHints). *)
+        (* - intros τ2 H2. *)
+
+        (* time(intros ? Fσ; induction Fσ; intros ? ? H1 H2; *)
+        (*   induction H2; inv H1; auto with SubtypeHints). ; filter_closed). *)
       Qed.
     End Filter_closed.
 
@@ -511,16 +512,6 @@ Module Types (VAlpha : VariableAlphabet).
       - constructor 2; trivial.
     Qed.
     Hint Resolve Ideal_isDANF : SubtypeHints.
-
-    (* cast ρ to σ (may produce new goals) *)
-    Ltac cast_ideal ρ σ :=
-      lazymatch σ with
-      | ω => apply F_OmegaTop
-      | _ => lazymatch ρ with
-             | σ ∩ _ => apply F_Inter1
-             | _ ∩ σ => apply F_Inter2
-             end
-      end.
 
     Section Ideal.
       Variable σ : term.
@@ -803,14 +794,12 @@ Module Types (VAlpha : VariableAlphabet).
           constructor; trivial.
           constructor 3.
           constructor; trivial.
-          eapply Filter_isFilter; eassumption.
           apply FilterUnion in H4.
           destruct H4.
           constructor.
           constructor 6; trivial.
           constructor 3.
           constructor 6; trivial.
-          eapply Filter_isFilter; eassumption.
           apply IdealInter in H0.
           inv H0.
           constructor.
