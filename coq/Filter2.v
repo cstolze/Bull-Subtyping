@@ -295,6 +295,8 @@ Module Types (VAlpha : VariableAlphabet).
     (* Conjunctive/Disjunctive Normal Forms *)
     Definition CANF (σ : term) : Prop := [⋂ [⋃ ANF]] σ \/ σ = ω.
     Definition DANF (σ : term) : Prop := [⋃ [⋂ ANF]] σ \/ σ = ω.
+    Hint Unfold CANF : SubtypeHints.
+    Hint Unfold DANF : SubtypeHints.
 
     (* Terms without Omega (with one exception) *)
     Inductive Omega_free : term -> Prop :=
@@ -305,37 +307,50 @@ Module Types (VAlpha : VariableAlphabet).
     | Of_Arrow2 : forall σ τ, Omega_free σ -> Omega_free τ -> Omega_free (σ → τ).
     Hint Constructors Omega_free : SubtypeHints.
 
-    Hint Extern 1 =>
-    lazymatch goal with
-    | H : ANF _ |- _ => idtac
-    | H : Generalize _ _ _ |- _ => idtac
-    | _ => fail
-    end;
+    Ltac decide_nf :=
+      try (lazymatch goal with
+           | H : ANF _ |- _ => idtac
+           | H : Generalize _ _ _ |- _ => idtac
+           | _ => fail
+           end;
+           repeat lazymatch goal with
+                  | H : [⋃ ANF] (_ ∪ _) |- _ => inversion H as [? H'|]; [inversion H'|]; subst; clear H
+                  | H : [⋃ [⋂ ANF]] (_ ∪ _) |- _ => inversion H as [? H'|];
+                                                    [inversion H' as [? H''|]; inversion H''|];
+                                                    subst; clear H
+                  | H : [⋃ _] (_ ∩ _) |- _ => inv H
+                  | H : [⋃ _] (_ → _) |- _ => inv H
+                  | H : [⋃ _] (Var _) |- _ => inv H
+                  | H : [⋃ _] ω |- _ => inv H
+                  | H : [⋂ ANF] (_ ∩ _) |- _ => inversion H as [? H'|]; [inversion H'|]; subst; clear H
+                  | H : [⋂ [⋃ ANF]] (_ ∩ _) |- _ => inversion H as [? H'|];
+                                                    [inversion H' as [? H''|]; inversion H''|];
+                                                    subst; clear H
+                  | H : [⋂ _] (_ ∪ _) |- _ => inv H
+                  | H : [⋂ _] (_ → _) |- _ => inv H
+                  | H : [⋂ _] (Var _) |- _ => inv H
+                  | H : [⋂ _] ω |- _ => inv H
+                  | H : ANF (ω → _) |- _ => inversion H as [|? ? H'|];
+                                            [inversion H' as [? H''|]; inversion H''|]; subst; clear H
+                  | H : ANF (_ → _) |- _ => inv H
+                  | H : ANF (_ ∩ _) |- _ => inversion H
+                  | H : ANF (_ ∪ _) |- _ => inversion H
+                  | H : ANF ω |- _ => inversion H
+                  | H : Omega_free (_ _ _) |- _ => inv H
+                  end);
       repeat lazymatch goal with
-             | H : [⋃ ANF] (_ ∪ _) |- _ => inversion H as [? H'|]; [inversion H'|]; subst; clear H
-             | H : [⋃ [⋂ ANF]] (_ ∪ _) |- _ => inversion H as [? H'|];
-                                                 [inversion H' as [? H''|]; inversion H''|];
-                                                 subst; clear H
-             | H : [⋃ _] (_ ∩ _) |- _ => inv H
-             | H : [⋃ _] (_ → _) |- _ => inv H
-             | H : [⋃ _] (Var _) |- _ => inv H
-             | H : [⋃ _] ω |- _ => inv H
-             | H : [⋂ ANF] (_ ∩ _) |- _ => inversion H as [? H'|]; [inversion H'|]; subst; clear H
-             | H : [⋃ [⋂ ANF]] (_ ∪ _) |- _ => inversion H as [? H'|];
-                                                 [inversion H' as [? H''|]; inversion H''|];
-                                                 subst; clear H
-             | H : [⋂ _] (_ ∪ _) |- _ => inv H
-             | H : [⋂ _] (_ → _) |- _ => inv H
-             | H : [⋂ _] (Var _) |- _ => inv H
-             | H : [⋂ _] ω |- _ => inv H
-             | H : ANF (ω → _) |- _ => inversion H as [|? ? H'|];
-                                         [inversion H' as [? H''|]; inversion H''|]; subst; clear H
-             | H : ANF (_ → _) |- _ => inv H
-             | H : ANF (_ ∩ _) |- _ => inversion H
-             | H : ANF (_ ∪ _) |- _ => inversion H
-             | H : ANF ω |- _ => inversion H
-             | H : Omega_free (_ _ _) |- _ => inv H
-             end : SubtypeHints.
+             | H : ?x |- ?x => assumption
+             | |- [⋃ _] (_ ∪ _) => apply G_cons
+             | |- [⋃ _] _ => apply G_cons
+             | |- [⋂ _] (_ ∩ _) => apply G_cons
+             | |- [⋂ _] _ => apply G_nil
+             | |- ANF (Var _) => constructor
+             | |- ANF (ω → _) => apply ArrowisANF'
+             | |- ANF (_ → _) => constructor
+             end.
+
+    Hint Extern 1 (ANF _) => decide_nf : SubtypeHints.
+    Hint Extern 1 (Generalize _ _ _) => decide_nf : SubtypeHints.
 
     Goal forall τ ρ τ0, τ0 ≤ ρ -> ω ≤ τ -> τ0 ≤ ρ ∩ τ.
     Proof.
@@ -578,21 +593,21 @@ Module Types (VAlpha : VariableAlphabet).
       intros ? ? ? H.
       assert (Iσ : [⋃ ANF] σ) by (auto with SubtypeHints).
       induction Iσ; split; inv H;
-        auto with SubtypeHints;
-        lazymatch goal with
-        (* Inductive case *)
-        | IH : ↓[?σ] ?τ -> _, H : ↓[?σ] ?τ |- ↓[?ρ] _ =>
-          (* cast ρ to σ *)
-          cast_ideal ρ σ; trivial;
-            (* apply the inductive hypothesis *)
-            apply IH; trivial
-        end.
+        auto with SubtypeHints; decide_nf;
+          lazymatch goal with
+          (* Inductive case *)
+          | IH : ↓[?σ] ?τ -> _, H : ↓[?σ] ?τ |- ↓[?ρ] _ =>
+            (* cast ρ to σ *)
+            cast_ideal ρ σ; trivial;
+              (* apply the inductive hypothesis *)
+              apply IH; trivial
+          end.
     Qed.
 
     Lemma IdealInter : forall σ τ ρ, ↓[σ] τ ∩ ρ -> ↓[σ] τ \/ ↓[σ] ρ.
       intros ? ? ? H.
       assert (Iσ : [⋃ ANF] σ) by (auto with SubtypeHints).
-      induction Iσ; inv H; auto with SubtypeHints;
+      induction Iσ; inv H; auto with SubtypeHints; decide_nf;
         lazymatch goal with
         (* Inductive case *)
         | IH : ↓[?σ] ?τ1 ∩ ?τ2 -> ?prop, H : ↓[?σ] ?τ1 ∩ ?τ2 |- ↓[?ρ] ?τ1 \/ ↓[?ρ] ?τ2 =>
@@ -627,9 +642,9 @@ Module Types (VAlpha : VariableAlphabet).
                                     | σ ∩ τ => fun pf => _
                                     | ω => fun pf => _
                                     end);
-        solve[inversion pf as [? pf'|]; inversion pf'|
-              auto with SubtypeHints].
+        try(inversion pf as [? pf'|]; inv pf'); decide_nf.
     Defined.
+
     Ltac uanf_ind σ :=
       let foo HH :=
           repeat match goal with
@@ -651,26 +666,26 @@ Module Types (VAlpha : VariableAlphabet).
     Lemma IdealnoOmega : forall σ, ~ ↓[ σ] ω.
     Proof.
       induction σ; intro H; inv H;
-        auto with SubtypeHints.
+        auto with SubtypeHints; decide_nf.
     Qed.
 
     Lemma IdealnoOmegaArrow : forall σ, ~ ↓[ σ] ω → ω.
     Proof.
       induction σ; intro H; inv H;
-        auto with SubtypeHints;
+        auto with SubtypeHints; decide_nf;
         eapply IdealnoOmega; eassumption.
     Qed.
 
-    Hint Extern 1 =>
-    lazymatch goal with
-    | H : ↓[_] ω |- _ => apply IdealnoOmega in H; exfalso; trivial
-    | H : ↓[_] ω → ω |- _ => apply IdealnoOmegaArrow in H; exfalso; trivial
-    | H : ↓[_] _ ∪ _ |- _ => apply IdealUnion in H; destruct H
-    | H : ↓[_] _ ∩ _ |- _ => apply IdealInter in H; destruct H
-    | H : ↓[_ ∪ _] _ → _ |- _ => inv H
-    | H : ↓[_ → _] _ → _ |- _ => inv H
-    | H : ↓[Var _] _ → _ |- _ => inv H
-    end : SubtypeHints.
+    Ltac destruct_ideal :=
+      repeat lazymatch goal with
+             | H : ↓[_] ω |- _ => apply IdealnoOmega in H; exfalso; trivial
+             | H : ↓[_] ω → ω |- _ => apply IdealnoOmegaArrow in H; exfalso; trivial
+             | H : ↓[_] _ ∪ _ |- _ => apply IdealUnion in H; destruct H
+             | H : ↓[_] _ ∩ _ |- _ => apply IdealInter in H; destruct H
+             | H : ↓[_ ∪ _] _ → _ |- _ => inv H
+             | H : ↓[_ → _] _ → _ |- _ => inv H
+             | H : ↓[Var _] _ → _ |- _ => inv H
+             end.
 
     Section Ideal_closed.
       (* This hint is local to the section; and help use the inductive hypotheses *)
@@ -693,10 +708,13 @@ Module Types (VAlpha : VariableAlphabet).
 
       Lemma Ideal_closed : forall σ, [⋃ ANF] σ -> forall τ1, ↓[σ] τ1 -> forall τ2, τ2 ≤ τ1 -> ↓[σ] τ2.
       Proof.
-        intros until 1; uanf_ind σ;
-          match goal with
-          | H : _ ≤ _ |- _ => induction H; auto 6 with SubtypeHints
-          end.
+        time(intros until 1; uanf_ind σ;
+             lazymatch goal with
+             | H : _ ≤ _ |- _ => induction H;
+                                 destruct_ideal;
+                                 decide_nf;
+                                 auto with SubtypeHints
+             end).
       Qed.
     End Ideal_closed.
 
@@ -710,24 +728,12 @@ Module Types (VAlpha : VariableAlphabet).
 
     (* First rewriting function: do Omega-related simplifications *)
 
-    Hint Extern 0 =>
-    lazymatch goal with
-    | H : ?σ = ω |- _ => lazymatch σ with
-                         | ω => clear H
-                         | Var _ => discriminate
-                         | _ → _ => discriminate
-                         | _ ∩ _ => discriminate
-                         | _ ∪ _ => discriminate
-                         end
-    | H : Omega_free ω |- _ => inv H
-    end : SubtypeHints.
-
     Hint Extern 1 (_ ~= _ ) =>
     repeat lazymatch goal with
     | H : ?x ~= ω |- context[?x] => rewrite H; clear H
     | H : ω ~= ?x |- context[?x] => rewrite <- H; clear H
     | H : ?x ~= _ |- context[?x] => rewrite H; clear H
-    end : SubtypeHints.
+           end : SubtypeHints.
 
     Definition deleteOmega : forall σ : term, {τ | τ ~= σ /\ (Omega_free τ \/ τ = ω)}.
     Proof.
@@ -735,73 +741,194 @@ Module Types (VAlpha : VariableAlphabet).
                match σ with
                | σ → τ => let (σ,pfσ) := deleteOmega σ in
                           let (τ,pfτ) := deleteOmega τ in
-                          (match τ as x return τ = x -> _ with
-                           | ω => fun _ => exist _ ω _
-                           | _ => fun _ => exist _ (σ → τ) _
-                           end eq_refl)
+                          match τ as x return τ = x -> _ with
+                          | ω => fun _ => exist _ ω _
+                          | _ => fun _ => exist _ (σ → τ) _
+                          end eq_refl
                | σ ∩ τ => let (σ,pfσ) := deleteOmega σ in
                           let (τ,pfτ) := deleteOmega τ in
                           match σ as x return σ = x -> _ with
                           | ω => fun _ => exist _ τ _
-                          | _ => fun _ => (match τ as x return τ = x -> _ with
-                                 | ω => fun _ => exist _ σ _
-                                 | _ => fun _ => exist _ (σ ∩ τ) _
-                                 end eq_refl)
+                          | _ => fun _ => match τ as x return τ = x -> _ with
+                                          | ω => fun _ => exist _ σ _
+                                          | _ => fun _ => exist _ (σ ∩ τ) _
+                                          end eq_refl
                           end eq_refl
                | σ ∪ τ => let (σ,pfσ) := deleteOmega σ in
                           let (τ,pfτ) := deleteOmega τ in
                           match σ as x return σ = x -> _ with
                           | ω => fun _ => exist _ ω _
-                          | _ => fun _ => (match τ as x return τ = x -> _ with
-                                           | ω => fun _ => exist _ ω _
-                                           | _ => fun _ => exist _ (σ ∪ τ) _
-                                           end eq_refl)
+                          | _ => fun _ => match τ as x return τ = x -> _ with
+                                          | ω => fun _ => exist _ ω _
+                                          | _ => fun _ => exist _ (σ ∪ τ) _
+                                          end eq_refl
                           end eq_refl
                | Var α => exist _ (Var α) _
                | ω => exist _ ω _
                end); clear deleteOmega; subst; simpl in *;
         time (first[destruct pfσ as [? [|]];
-                    destruct pfτ as [? [|]]; subst; auto 6 with SubtypeHints|
-                    auto with SubtypeHints]).
+                    destruct pfτ as [? [|]]; subst|
+                    auto with SubtypeHints];
+              first[match goal with | H : Omega_free ω |- _ => inversion H end|
+                    discriminate|
+                    split; auto with SubtypeHints]).
     Defined.
 
-    Definition distrArrow : forall (σ τ : term), {σ' |  }
+    Lemma InterArrowEquiv : forall σ1 σ2 τ ρ1 ρ2, σ1 ~= τ → ρ1 -> σ2 ~= τ → ρ2 ->  σ1 ∩ σ2 ~= τ → ρ1 ∩ ρ2.
+    Proof.
+      intros ? ? ? ? ? H H'.
+      rewrite H, H'.
+      auto with SubtypeHints.
+    Qed.
+    Hint Resolve InterArrowEquiv : SubtypeHints.
 
-    Fixpoint Arrow_DistrRight (σ τ : term) : term :=
-      match τ with
-      | τ1 ∩ τ2 => (Arrow_DistrRight σ τ1) ∩ (Arrow_DistrRight σ τ2)
-      | _ => σ → τ
-      end.
+    Lemma UnionArrowEquiv : forall σ1 σ2 τ1 τ2 ρ, σ1 ~= τ1 → ρ -> σ2 ~= τ2 → ρ ->  σ1 ∩ σ2 ~= τ1 ∪ τ2 → ρ.
+    Proof.
+      intros ? ? ? ? ? H H'.
+      rewrite H, H'.
+      auto with SubtypeHints.
+    Qed.
+    Hint Resolve UnionArrowEquiv : SubtypeHints.
 
-    Fixpoint Arrow_Distr (σ τ : term) : term :=
-      match σ with
-      | σ1 ∪ σ2 => (Arrow_Distr σ1 τ) ∩ (Arrow_Distr σ2 τ)
-      | _ => Arrow_DistrRight σ τ
-      end.
+    Definition distrArrow : forall (σ τ : term), ([⋃ [⋂ ANF]] σ \/ σ = ω) -> [⋂ [⋃ ANF]] τ ->
+                                                 {σ' | σ' ~= σ → τ /\ [⋂ ANF] σ'}.
+    Proof.
+      refine(fix distrArrow σ τ pfσ pfτ :=
+               match σ as x return σ = x -> _ with
+               | σ1 ∪ σ2 => fun _ => let (σ1,pfσ1) := distrArrow σ1 τ _ _ in
+                                     let (σ2,pfσ2) := distrArrow σ2 τ _ _ in
+                                     exist _ (σ1 ∩ σ2) _
+               | _ => fun _ =>
+                        (fix distrArrow' σ τ (pfσ:[⋂ ANF] σ) (pfτ:[⋂ [⋃ ANF]] τ) : {σ' | σ' ~= σ → τ /\ [⋂ ANF] σ'} :=
+                           match τ as x return τ = x -> _ with
+                           | τ1 ∩ τ2 => fun _ => let (τ1,pfτ1) := distrArrow' σ τ1 _ _ in
+                                                 let (τ2,pfτ2) := distrArrow' σ τ2 _ _ in
+                                                 exist _ (τ1 ∩ τ2) _
+                           | _ => fun _ => exist _ (σ → τ) _
+                           end eq_refl) σ τ _ pfτ
+               end eq_refl); subst; simpl in *;
+        time(auto with SubtypeHints).
+    Defined.
 
-    Fixpoint Inter_DistrRight (σ τ : term) : term :=
-      match τ with
-      | τ1 ∩ τ2 => (Inter_DistrRight σ τ1) ∩ (Inter_DistrRight σ τ2)
-      | _ => σ ∪ τ
-      end.
+    Lemma UnionEquiv1 : forall σ1 σ2 τ1 τ2 τ3, σ1 ~= τ1 ∪ τ2 -> σ2 ~= τ1 ∪ τ3 -> σ1 ∩ σ2 ~= τ1 ∪ (τ2 ∩ τ3).
+    Proof.
+      intros ? ? ? ? ? H H'.
+      rewrite H, H'.
+      auto with SubtypeHints.
+    Qed.
+    Hint Resolve UnionEquiv1 : SubtypeHints.
 
-    Fixpoint Inter_Distr (σ τ : term) : term :=
-      match σ with
-      | σ1 ∩ σ2 => (Inter_Distr σ1 τ) ∩ (Inter_Distr σ2 τ)
-      | _ => Inter_DistrRight σ τ
-      end.
+    Lemma UnionEquiv2 : forall σ1 σ2 τ1 τ2 τ3, σ1 ~= τ1 ∪ τ3 -> σ2 ~= τ2 ∪ τ3 -> σ1 ∩ σ2 ~= (τ1 ∩ τ2) ∪ τ3.
+    Proof.
+      intros ? ? ? ? ? H H'.
+      rewrite H, H'.
+      transitivity (τ3 ∪ (τ1 ∩ τ2)); auto with SubtypeHints.
+    Qed.
+    Hint Resolve UnionEquiv2 : SubtypeHints.
 
-    Fixpoint Union_DistrRight (σ τ : term) : term :=
-      match τ with
-      | τ1 ∪ τ2 => (Union_DistrRight σ τ1) ∪ (Union_DistrRight σ τ2)
-      | _ => σ ∩ τ
-      end.
+    Definition distrUnion : forall (σ τ : term), [⋂ [⋃ ANF]] σ -> [⋂ [⋃ ANF]] τ ->
+                                                 {σ' | σ' ~= σ ∪ τ /\ [⋂ [⋃ ANF]] σ'}.
+    Proof.
+      refine(fix distrUnion σ τ pfσ pfτ :=
+               match σ as x return σ = x -> _ with
+               | σ1 ∩ σ2 => fun _ => let (σ1,pfσ1) := distrUnion σ1 τ _ _ in
+                                     let (σ2,pfσ2) := distrUnion σ2 τ _ _ in
+                                     exist _ (σ1 ∩ σ2) _
+               | _ => fun _ =>
+                        (fix distrUnion' σ τ (pfσ:[⋃ ANF] σ) (pfτ:[⋂ [⋃ ANF]] τ) : {σ' | σ' ~= σ ∪ τ /\ [⋂ [⋃ ANF]] σ'} :=
+                           match τ as x return τ = x -> _ with
+                           | τ1 ∩ τ2 => fun _ => let (τ1,pfτ1) := distrUnion' σ τ1 _ _ in
+                                                 let (τ2,pfτ2) := distrUnion' σ τ2 _ _ in
+                                                 exist _ (τ1 ∩ τ2) _
+                           | _ => fun _ => exist _ (σ ∪ τ) _
+                           end eq_refl) σ τ _ pfτ
+               end eq_refl); subst; simpl in *;
+        time(auto with SubtypeHints).
+    Defined.
 
-    Fixpoint Union_Distr (σ τ : term) : term :=
-      match σ with
-      | σ1 ∪ σ2 => (Union_Distr σ1 τ) ∪ (Union_Distr σ2 τ)
-      | _ => Union_DistrRight σ τ
-      end.
+    Lemma InterEquiv1 : forall σ1 σ2 τ1 τ2 τ3, σ1 ~= τ1 ∩ τ2 -> σ2 ~= τ1 ∩ τ3 -> σ1 ∪ σ2 ~= τ1 ∩ (τ2 ∪ τ3).
+    Proof.
+      intros ? ? ? ? ? H H'.
+      rewrite H, H'.
+      auto with SubtypeHints.
+    Qed.
+    Hint Resolve InterEquiv1 : SubtypeHints.
+
+    Lemma InterEquiv2 : forall σ1 σ2 τ1 τ2 τ3, σ1 ~= τ1 ∩ τ3 -> σ2 ~= τ2 ∩ τ3 -> σ1 ∪ σ2 ~= (τ1 ∪ τ2) ∩ τ3.
+    Proof.
+      intros ? ? ? ? ? H H'.
+      rewrite H, H'.
+      transitivity (τ3 ∩ (τ1 ∪ τ2)); auto with SubtypeHints.
+    Qed.
+    Hint Resolve InterEquiv2 : SubtypeHints.
+
+    Definition distrInter : forall (σ τ : term), [⋃ [⋂ ANF]] σ -> [⋃ [⋂ ANF]] τ ->
+                                                 {σ' | σ' ~= σ ∩ τ /\ [⋃ [⋂ ANF]] σ'}.
+    Proof.
+      refine(fix distrUnion σ τ pfσ pfτ :=
+               match σ as x return σ = x -> _ with
+               | σ1 ∪ σ2 => fun _ => let (σ1,pfσ1) := distrUnion σ1 τ _ _ in
+                                     let (σ2,pfσ2) := distrUnion σ2 τ _ _ in
+                                     exist _ (σ1 ∪ σ2) _
+               | _ => fun _ =>
+                        (fix distrUnion' σ τ (pfσ:[⋂ ANF] σ) (pfτ:[⋃ [⋂ ANF]] τ) : {σ' | σ' ~= σ ∩ τ /\ [⋃ [⋂ ANF]] σ'} :=
+                           match τ as x return τ = x -> _ with
+                           | τ1 ∪ τ2 => fun _ => let (τ1,pfτ1) := distrUnion' σ τ1 _ _ in
+                                                 let (τ2,pfτ2) := distrUnion' σ τ2 _ _ in
+                                                 exist _ (τ1 ∪ τ2) _
+                           | _ => fun _ => exist _ (σ ∩ τ) _
+                           end eq_refl) σ τ _ pfτ
+               end eq_refl); subst; simpl in *;
+        time(auto with SubtypeHints).
+    Defined.
+
+    Fixpoint _CANF  (σ : term) : (Omega_free σ \/ σ = ω) -> {τ | τ ~= σ /\ CANF τ}
+    with _DANF  (σ : term) : (Omega_free σ \/ σ = ω) -> {τ | τ ~= σ /\ DANF τ}.
+    Proof.
+      refine(match σ with
+             | Var α => fun _ => exist _ (Var α) _
+             | σ → τ => fun _ =>
+                          let (σ,pfσ) := _DANF σ _ in
+                          let (τ,pfτ) := _CANF τ _ in
+                          let (σ',pfσ') := distrArrow σ τ _ _ in
+                          exist _ σ' _
+             | σ ∩ τ => fun _ =>
+                          let (σ,pfσ) := _CANF σ _ in
+                          let (τ,pfτ) := _CANF τ _ in
+                          exist _ (σ ∩ τ) _
+             | σ ∪ τ => fun _ =>
+                          let (σ,pfσ) := _CANF σ _ in
+                          let (τ,pfτ) := _CANF τ _ in
+                          let (σ',pfσ') := distrUnion σ τ _ _ in
+                          exist _ σ' _
+             | ω => fun _ => exist _ ω _
+             end); simpl in *.
+      auto 6 with SubtypeHints.
+      destruct o.
+      inv H.
+      auto 10 with SubtypeHints.
+      auto 6 with SubtypeHints.
+      discriminate.
+      destruct o.
+      inv H.
+      auto 6 with SubtypeHints.
+      auto 6 with SubtypeHints.
+      discriminate.
+      destruct o.
+      destruct pfσ.
+      destruct H1.
+      trivial.
+      auto 6 with SubtypeHints.
+      auto 6 with SubtypeHints.
+      auto 6 with SubtypeHints.
+      auto 6 with SubtypeHints.
+      auto 6 with SubtypeHints.
+      auto 6 with SubtypeHints.
+      auto 6 with SubtypeHints.
+      auto 6 with SubtypeHints.
+      auto 6 with SubtypeHints.
+      
+    Defined.
 
     Fixpoint _CANF (σ : term) : term :=
       match σ with
