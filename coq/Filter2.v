@@ -23,9 +23,10 @@ Require PreOrderTactic.
 Ltac preorder := PreOrderTactic.preorder.
 Ltac inv H := inversion H; clear H; subst.
 
+Hint Extern 0 (_ <> _) => discriminate.
+
 Hint Extern 0 => lazymatch goal with
                  | H : ?x <> ?x |- _ => contradiction
-                 | |- _ <> _ => discriminate
                  end.
 
 Hint Extern 1 => lazymatch goal with
@@ -194,14 +195,20 @@ Module Types (VAlpha : VariableAlphabet).
     Hint Resolve OmegaArrow : SubtypeHints.
 
     (* Ask auto to automatically simplify the hypotheses *)
-    Hint Extern 1 => match goal with
-                     | H : ?σ ≤ ?τ ∩ ?ρ |- _ => apply Inter_inf' in H; destruct H
-                     | H : ?σ ∪ ?τ ≤ ?ρ |- _ => apply Union_sup' in H; destruct H
-                     | H : ω ≤ _ |- _ => try rewrite <- H; clear H
-                     end : SubtypeHints.
+    Hint Extern 1 (_ ≤ _) =>
+    lazymatch goal with
+    | H : ω ≤ _ |- _ => try rewrite <- H; (clear H) + (try rewrite <- H in *; clear H)
+    | H : ?σ ≤ ?τ ∩ ?ρ |- _ => apply Inter_inf' in H; destruct H
+    | H : ?σ ∪ ?τ ≤ ?ρ |- _ => apply Union_sup' in H; destruct H
+    end : SubtypeHints.
 
+    Goal forall τ ρ τ0, τ ≤ ρ -> ω ≤ τ -> τ0 ≤ ρ ∩ τ.
+    Proof.
+      intros.
+      time(auto with SubtypeHints). (* 0.03s *)
+    Qed.
     (* Ask auto to use preorder if the goal is atomic *)
-    Hint Extern 30 (?x ≤ ?y) =>
+    Hint Extern 300 (?x ≤ ?y) =>
     lazymatch x with
     | _ _ _ => fail
     | _ => lazymatch y with
@@ -209,6 +216,11 @@ Module Types (VAlpha : VariableAlphabet).
            | _ => preorder
            end
     end : SubtypeHints.
+
+    Goal forall τ ρ τ0, τ0 ≤ ρ -> ω ≤ τ -> τ0 ≤ ρ ∩ τ.
+    Proof.
+      time(auto with SubtypeHints). (* 0.15s *)
+    Qed.
 
     Fact UnionInterDistrib : forall σ τ ρ, (σ ∪ τ) ∩ (σ ∪ ρ) ≤ σ ∪ (τ ∩ ρ).
     Proof with auto with SubtypeHints.
@@ -251,6 +263,18 @@ Module Types (VAlpha : VariableAlphabet).
       compute...
     Defined.
 
+    Hint Extern 2 (?R _ _ ~= ?R _ _) =>
+    lazymatch R with
+    | (∩) => apply Inter_Proper_EQ
+    | (∪) => apply Union_Proper_EQ
+    | (→) => apply Arr_Proper_EQ
+    end : SubtypeHints.
+
+    Goal forall τ ρ τ0, τ0 ≤ ρ -> ω ≤ τ -> τ0 ≤ ρ ∩ τ.
+    Proof.
+      time(auto with SubtypeHints). (* 0.016s *)
+    Qed.
+
     (* Syntactical predicates on terms *)
     Inductive Generalize (c : term -> term -> term) (P : term -> Prop) : term -> Prop :=
     | G_nil : forall σ, P σ -> Generalize c P σ
@@ -269,8 +293,8 @@ Module Types (VAlpha : VariableAlphabet).
     Hint Constructors ANF : SubtypeHints.
 
     (* Conjunctive/Disjunctive Normal Forms *)
-    Definition CANF (σ : term) : Prop := σ = ω \/ [⋂ [⋃ ANF]] σ.
-    Definition DANF (σ : term) : Prop := σ = ω \/ [⋃ [⋂ ANF]] σ.
+    Definition CANF (σ : term) : Prop := [⋂ [⋃ ANF]] σ \/ σ = ω.
+    Definition DANF (σ : term) : Prop := [⋃ [⋂ ANF]] σ \/ σ = ω.
 
     (* Terms without Omega (with one exception) *)
     Inductive Omega_free : term -> Prop :=
@@ -281,32 +305,42 @@ Module Types (VAlpha : VariableAlphabet).
     | Of_Arrow2 : forall σ τ, Omega_free σ -> Omega_free τ -> Omega_free (σ → τ).
     Hint Constructors Omega_free : SubtypeHints.
 
-    Hint Extern 0 =>
-    repeat lazymatch goal with
-           | H : [⋃ ANF] (_ ∪ _) |- _ => inversion H as [? H'|]; [inversion H'|]; subst; clear H
-           | H : [⋃ [⋂ ANF]] (_ ∪ _) |- _ => inversion H as [? H'|];
-                                               [inversion H' as [? H''|]; inversion H''|];
-                                               subst; clear H
-           | H : [⋃ _] (_ ∩ _) |- _ => inv H
-           | H : [⋃ _] (_ → _) |- _ => inv H
-           | H : [⋃ _] (Var _) |- _ => inv H
-           | H : [⋃ _] ω |- _ => inv H
-           | H : [⋂ ANF] (_ ∩ _) |- _ => inversion H as [? H'|]; [inversion H'|]; subst; clear H
-           | H : [⋃ [⋂ ANF]] (_ ∪ _) |- _ => inversion H as [? H'|];
-                                               [inversion H' as [? H''|]; inversion H''|];
-                                               subst; clear H
-           | H : [⋂ _] (_ ∪ _) |- _ => inv H
-           | H : [⋂ _] (_ → _) |- _ => inv H
-           | H : [⋂ _] (Var _) |- _ => inv H
-           | H : [⋂ _] ω |- _ => inv H
-           | H : ANF (ω → _) |- _ => inversion H as [|? ? H'|];
-                                       [inversion H' as [? H''|]; inversion H''|]; subst; clear H
-           | H : ANF (_ → _) |- _ => inv H
-           | H : ANF (_ ∩ _) |- _ => inversion H
-           | H : ANF (_ ∪ _) |- _ => inversion H
-           | H : ANF ω |- _ => inversion H
-           | H : Omega_free (_ _ _) |- _ => inv H
-           end : SubtypeHints.
+    Hint Extern 1 =>
+    lazymatch goal with
+    | H : ANF _ |- _ => idtac
+    | H : Generalize _ _ _ |- _ => idtac
+    | _ => fail
+    end;
+      repeat lazymatch goal with
+             | H : [⋃ ANF] (_ ∪ _) |- _ => inversion H as [? H'|]; [inversion H'|]; subst; clear H
+             | H : [⋃ [⋂ ANF]] (_ ∪ _) |- _ => inversion H as [? H'|];
+                                                 [inversion H' as [? H''|]; inversion H''|];
+                                                 subst; clear H
+             | H : [⋃ _] (_ ∩ _) |- _ => inv H
+             | H : [⋃ _] (_ → _) |- _ => inv H
+             | H : [⋃ _] (Var _) |- _ => inv H
+             | H : [⋃ _] ω |- _ => inv H
+             | H : [⋂ ANF] (_ ∩ _) |- _ => inversion H as [? H'|]; [inversion H'|]; subst; clear H
+             | H : [⋃ [⋂ ANF]] (_ ∪ _) |- _ => inversion H as [? H'|];
+                                                 [inversion H' as [? H''|]; inversion H''|];
+                                                 subst; clear H
+             | H : [⋂ _] (_ ∪ _) |- _ => inv H
+             | H : [⋂ _] (_ → _) |- _ => inv H
+             | H : [⋂ _] (Var _) |- _ => inv H
+             | H : [⋂ _] ω |- _ => inv H
+             | H : ANF (ω → _) |- _ => inversion H as [|? ? H'|];
+                                         [inversion H' as [? H''|]; inversion H''|]; subst; clear H
+             | H : ANF (_ → _) |- _ => inv H
+             | H : ANF (_ ∩ _) |- _ => inversion H
+             | H : ANF (_ ∪ _) |- _ => inversion H
+             | H : ANF ω |- _ => inversion H
+             | H : Omega_free (_ _ _) |- _ => inv H
+             end : SubtypeHints.
+
+    Goal forall τ ρ τ0, τ0 ≤ ρ -> ω ≤ τ -> τ0 ≤ ρ ∩ τ.
+    Proof.
+      time(auto with SubtypeHints). (* 0.01s *)
+    Qed.
 
     (* Terms on which we'll define filters *)
     Unset Elimination Schemes.
@@ -345,7 +379,7 @@ Module Types (VAlpha : VariableAlphabet).
     | F_Arrow1 : forall σ1 σ2 τ1 τ2 : term, σ2 ≤ σ1 -> τ1 ≤ τ2 -> ↑[σ1 → τ1] σ2 → τ2
     | F_Arrow2 : forall σ1 σ2 τ1 τ2 ρ1 ρ2 : term, ↑[σ1 ∩ σ2] τ1 → ρ1 -> τ2 ≤ τ1 -> ρ1 ≤ ρ2 -> ↑[σ1 ∩ σ2] τ2 → ρ2
     | F_OmegaTopV : forall (α : 𝕍) (τ : term), ↑[ω] τ -> ↑[Var α] τ
-    | F_OmegaTopA : forall σ1 σ2 τ : term, isFilter (σ1 → σ2) -> ↑[ω] τ -> ↑[σ1 → σ2] τ
+    | F_OmegaTopA : forall σ1 σ2 τ : term, ↑[ω] τ -> ↑[σ1 → σ2] τ
     | F_OmegaTopI : forall σ1 σ2 τ : term, isFilter (σ1 ∩ σ2) -> ↑[ω] τ -> ↑[σ1 ∩ σ2] τ
     | F_Omega : forall σ τ : term, ↑[ω] τ -> ↑[ω] σ → τ
     | F_Inter1 : forall σ1 σ2 τ : term, isFilter σ2 -> ↑[σ1] τ -> ↑[σ1 ∩ σ2] τ
@@ -355,7 +389,6 @@ Module Types (VAlpha : VariableAlphabet).
     where "↑[ σ ] τ" := (Filter σ τ).
 
     Hint Constructors Filter : SubtypeHints.
-    Hint Constructors isFilter : SubtypeHints.
 
     Inductive Ideal : term -> term -> Prop :=
     | I_Refl : forall σ : term,  [⋃ ANF] σ -> ↓[σ] σ
@@ -369,6 +402,10 @@ Module Types (VAlpha : VariableAlphabet).
     where "↓[ σ ] τ" := (Ideal σ τ).
 
     Hint Constructors Ideal : SubtypeHints.
+    Goal forall τ ρ τ0, τ0 ≤ ρ -> ω ≤ τ -> τ0 ≤ ρ ∩ τ.
+    Proof.
+      time(auto with SubtypeHints). (* 0.01s *)
+    Qed.
 
     Lemma Filter_correct : forall σ τ, ↑[σ] τ -> σ ≤ τ.
     Proof with auto using Inter_inf_dual, Union_sup_dual with SubtypeHints.
@@ -379,6 +416,21 @@ Module Types (VAlpha : VariableAlphabet).
       - etransitivity; [|apply R_UnionDistrib]...
     Qed.
     Hint Resolve Filter_correct : SubtypeHints.
+
+    Goal forall τ ρ τ0, τ0 ≤ ρ -> ω ≤ τ -> τ0 ≤ ρ ∩ τ.
+    Proof.
+      time(auto with SubtypeHints). (* 0.01s *)
+    Qed.
+
+    Hint Extern 1 (_ ≤ _) =>
+    lazymatch goal with
+    | H : ↑[ω] _ |- _ => apply (Filter_correct) in H; try rewrite <- H; (clear H) + (try rewrite <- H in *; clear H)
+    end : SubtypeHints.
+
+    Goal forall τ ρ τ0, τ0 ≤ ρ -> ω ≤ τ -> τ0 ≤ ρ ∩ τ.
+    Proof.
+      time(auto with SubtypeHints). (* 0.01s *)
+    Qed.
 
     Lemma Filter_isFilter: forall σ τ, ↑[σ] τ -> isFilter σ.
     Proof.
@@ -402,6 +454,11 @@ Module Types (VAlpha : VariableAlphabet).
              | _ ∩ σ => apply F_Inter2
              end
       end.
+
+    Goal forall τ ρ τ0, τ0 ≤ ρ -> ω ≤ τ -> τ0 ≤ ρ ∩ τ.
+    Proof.
+      time(auto with SubtypeHints). (* 0.01s *)
+    Qed.
 
     Lemma FilterInter : forall σ τ ρ, ↑[σ] τ ∩ ρ -> ↑[σ] τ /\ ↑[σ] ρ.
       intros ? ? ? H.
@@ -432,65 +489,65 @@ Module Types (VAlpha : VariableAlphabet).
         end.
     Qed.
 
-    Hint Extern 4 =>
-    repeat lazymatch goal with
-           | H : ↑[ω] _ → _ |- _ => inv H; [contradiction|]
-           | H : ↑[?σ ∩ ?τ] (?ρ → _) ∩ (?ρ → _) |- _ => apply F_ArrowInter in H
-           | H : ↑[?σ ∩ ?τ] (_ → ?ρ) ∩ (_ → ?ρ) |- _ => apply F_ArrowUnion in H
-           | H : ↑[_] _ ∪ _ |- _ => apply FilterUnion in H; destruct H
-           | H : ↑[_] _ ∩ _ |- _ => apply FilterInter in H; destruct H
-           end.
+    Lemma FilterArrow : forall σ σ' τ τ', ↑[σ → σ'] τ → τ' -> (↑[ω] τ → τ' \/ (τ ≤ σ  /\ σ' ≤ τ')).
+    Proof.
+      intros ? ? ? ? H; inv H; auto 3 with SubtypeHints.
+    Qed.
 
-    Section Filter_closed.
-      Lemma Filter_omega : forall σ τ, isFilter σ -> ↑[ω] τ -> ↑[σ] τ.
-      Proof.
-        induction 1; auto with SubtypeHints.
-      Qed.
+    Hint Extern 1 =>
+    lazymatch goal with
+    | H : ↑[?σ ∩ ?τ] (?ρ → _) ∩ (?ρ → _) |- _ => apply F_ArrowInter in H
+    | H : ↑[?σ ∩ ?τ] (_ → ?ρ) ∩ (_ → ?ρ) |- _ => apply F_ArrowUnion in H
+    | H : ↑[_] _ ∪ _ |- _ => apply FilterUnion in H; destruct H
+    | H : ↑[_] _ ∩ _ |- _ => apply FilterInter in H; destruct H
+    | H : ↑[_ → _] _ → _ |- _ => apply FilterArrow in H; destruct H as [|[ ]]
+    | H : ↑[ω] _ → _ |- _ => inv H
+    | H : ↑[Var _] _ → _ |- _ => inv H
+    end : SubtypeHints.
 
-      Lemma Filter_closed : forall σ τ1 τ2,
-          (forall σ' τ ρ, ↑[ σ] (σ' → ρ) ∩ (σ' → τ) -> ↑[ σ] σ' → ρ ∩ τ)
-            (forall σ' τ ρ, ↑[ σ] (σ' → ρ) ∩ (τ → ρ) -> ↑[ σ] σ' ∪ τ → ρ)
-            (forall τ ρ τ' ρ', ↑[ σ] τ' → ρ -> forall τ, ρ' : term, τ ≤ τ' -> ρ ≤ ρ' -> ↑[ σ] τ → ρ')
-          ↑[σ] τ1 -> τ1 ≤ τ2 -> ↑[σ] τ2.
-      Proof.
-        induction 2.
-        - auto with SubtypeHints.
-        - auto with SubtypeHints.
-        - auto with SubtypeHints.
-        - auto with SubtypeHints.
-        - auto with SubtypeHints.
-        - auto with SubtypeHints.
-        - admit. (* forall σ' τ ρ, ↑[ σ] (σ' → ρ) ∩ (σ' → τ) -> ↑[ σ] σ' → ρ ∩ τ *)
-        - admit. (* forall σ' τ ρ, ↑[ σ] (σ' → ρ) ∩ (τ → ρ) -> ↑[ σ] σ' ∪ τ → ρ *)
-        - auto with SubtypeHints.
-        - auto with SubtypeHints.
-        - auto with SubtypeHints.
-        - admit. (* forall τ ρ τ' ρ', ↑[ σ] τ' → ρ -> forall τ, ρ' : term, τ ≤ τ' -> ρ ≤ ρ' -> ↑[ σ] τ → ρ' *)
-        - apply Filter_omega; auto with SubtypeHints.
-        - apply Filter_omega; auto with SubtypeHints.
-        - trivial.
-        - auto with SubtypeHints.
-      Qed.
+    Goal forall τ ρ τ0, τ0 ≤ ρ -> ω ≤ τ -> τ0 ≤ ρ ∩ τ.
+    Proof.
+      time(auto with SubtypeHints). (* 0.01s *)
+    Qed.
 
-      Lemma Filter_closed : forall σ τ1, ↑[σ] τ1 -> forall τ2, τ1 ≤ τ2 -> ↑[σ] τ2.
-      Proof.
-        intros σ τ1 H1.
-        assert (Fσ : isFilter σ) by (auto with SubtypeHints).
-        induction Fσ.
-        - intros τ2 H2.
-          time(induction H2; inv H1; auto with SubtypeHints). *)
-        (* - intros τ2 H2. *)
+    Lemma Filter_omega : forall σ τ, isFilter σ -> ↑[ω] τ -> ↑[σ] τ.
+    Proof.
+      induction 1; auto with SubtypeHints.
+    Qed.
 
-        (* time(intros ? Fσ; induction Fσ; intros ? ? H1 H2; *)
-        (*   induction H2; inv H1; auto with SubtypeHints). ; filter_closed). *)
-      Qed.
-    End Filter_closed.
+    Lemma FilterArrow' : forall σ τ' ρ, ↑[ σ] τ' → ρ -> forall τ ρ', τ ≤ τ' -> ρ ≤ ρ' -> ↑[ σ] τ → ρ'.
+    Proof.
+      intros ? ? ? H.
+      assert (Fσ : isFilter σ) by (auto with SubtypeHints).
+      induction Fσ.
+      - intros ? ? ? H1.
+        constructor; inv H.
+        induction H1; auto 10 with SubtypeHints.
+      - auto with SubtypeHints.
+      - apply FilterArrow in H; destruct H as [|[ ]]; auto with SubtypeHints.
+      - eauto with SubtypeHints.
+    Qed.
+
+    Lemma Filter_closed : forall σ τ1 τ2,
+        ↑[σ] τ1 -> τ1 ≤ τ2 -> ↑[σ] τ2.
+    Proof.
+      induction 2; auto with SubtypeHints;
+        solve [eapply FilterArrow'; eassumption|
+               apply Filter_omega; auto with SubtypeHints|
+               assert (Fσ : isFilter σ) by (auto with SubtypeHints);
+               induction Fσ; auto 10 with SubtypeHints].
+    Qed.
+    Hint Extern 0 (↑[?σ] ?τ2) =>
+    lazymatch goal with
+    | H : ↑[σ] ?τ1, H' : ?τ1 ≤ τ2 |- ↑[σ] τ2 => apply (Filter_closed _ _ _ H H')
+    end : SubtypeHints.
 
     Lemma Filter_complete : forall σ, isFilter σ -> forall τ, σ ≤ τ -> ↑[σ] τ.
     Proof.
       intros; eapply Filter_closed; try eassumption.
       apply F_Refl; assumption.
     Qed.
+    Hint Resolve Filter_complete : SubtypeHints.
 
     (* Unicode starts dying below this point *)
 
@@ -503,375 +560,143 @@ Module Types (VAlpha : VariableAlphabet).
 
     Lemma Ideal_isDANF: forall σ τ, ↓[σ] τ -> [⋃ ANF] σ.
     Proof.
-      intros ? ? H; induction H; trivial.
-      - constructor.
-        constructor; trivial.
-      - constructor.
-        constructor 3; trivial.
-      - constructor 2; trivial.
-      - constructor 2; trivial.
+      intros ? ? H; induction H; auto with SubtypeHints.
     Qed.
     Hint Resolve Ideal_isDANF : SubtypeHints.
+    Hint Extern 0 ([⋃ ANF] ?σ) =>
+      match goal with
+      | H : ↓[?σ] _ |- _ => apply (Ideal_isDANF _ _ H)
+      end : SubtypeHints.
 
-    Section Ideal.
-      Variable σ : term.
-      Hypothesis Iσ : [⋃ ANF] σ.
+    Ltac cast_ideal ρ σ :=
+      lazymatch ρ with
+      | σ ∪ _ => apply I_Union1
+      | _ ∪ σ => apply I_Union2
+      end.
 
-      Lemma IdealUnion : forall τ ρ, ↓[σ] τ ∪ ρ -> ↓[σ] τ /\ ↓[σ] ρ.
-        intros ? ? H ; induction Iσ; split; inv H; auto.
-        - constructor.
-          inv H1; trivial.
-          inv H.
-          constructor.
-          inv H1; trivial.
-          inv H.
-        - inv H0.
-        - inv H0.
-        - inv H0.
-        - inv H0.
-        - inv H0.
-        - constructor; trivial.
-          constructor; trivial.
-        - constructor; trivial.
-          apply IHg1; trivial.
-        - constructor 8; trivial.
-          apply IHg2; trivial.
-        - constructor 8; trivial.
-          constructor; trivial.
-        - constructor; trivial.
-          apply IHg1; trivial.
-        - constructor 8; trivial.
-          apply IHg2; trivial.
-      Qed.
+    Lemma IdealUnion : forall σ τ ρ, ↓[σ] τ ∪ ρ -> ↓[σ] τ /\ ↓[σ] ρ.
+      intros ? ? ? H.
+      assert (Iσ : [⋃ ANF] σ) by (auto with SubtypeHints).
+      induction Iσ; split; inv H;
+        auto with SubtypeHints;
+        lazymatch goal with
+        (* Inductive case *)
+        | IH : ↓[?σ] ?τ -> _, H : ↓[?σ] ?τ |- ↓[?ρ] _ =>
+          (* cast ρ to σ *)
+          cast_ideal ρ σ; trivial;
+            (* apply the inductive hypothesis *)
+            apply IH; trivial
+        end.
+    Qed.
 
-      Lemma IdealInter : forall τ ρ, ↓[σ] τ ∩ ρ -> ↓[σ] τ \/ ↓[σ] ρ.
-        intros ? ? H; induction Iσ; inv H; auto.
-        - inv H1.
-          inv H.
-        - inv H0.
-        - inv H0.
-        - apply IHg1 in H4; trivial.
-          inv H4; [left|right];
-            constructor; trivial.
-        - apply IHg2 in H4; trivial.
-          inv H4; [left|right];
-            constructor 8; trivial.
-      Qed.
-    End Ideal.
+    Lemma IdealInter : forall σ τ ρ, ↓[σ] τ ∩ ρ -> ↓[σ] τ \/ ↓[σ] ρ.
+      intros ? ? ? H.
+      assert (Iσ : [⋃ ANF] σ) by (auto with SubtypeHints).
+      induction Iσ; inv H; auto with SubtypeHints;
+        lazymatch goal with
+        (* Inductive case *)
+        | IH : ↓[?σ] ?τ1 ∩ ?τ2 -> ?prop, H : ↓[?σ] ?τ1 ∩ ?τ2 |- ↓[?ρ] ?τ1 \/ ↓[?ρ] ?τ2 =>
+          (* apply the inductive hypothesis *)
+          destruct (IH H); [left|right];
+            (* cast ρ to σ *)
+            cast_ideal ρ σ; assumption
+        end.
+    Qed.
 
-    Lemma interanf_isFilter : forall σ, [ ⋂ ANF] σ -> isFilter σ.
+    Lemma InterANF_isFilter : forall σ, [ ⋂ ANF] σ -> isFilter σ.
     Proof.
-      induction 1.
+      induction 1 as [? H|].
       inversion H; auto with SubtypeHints.
       constructor; trivial.
     Qed.
+    Hint Extern 0 (isFilter ?σ) =>
+    match goal with
+    | H : [ ⋂ ANF] σ |- _ => apply InterANF_isFilter
+    end : SubtypeHints.
 
     Lemma Uanf_ind : forall P : term -> Prop,
-        (forall a, P (Var a)) ->
-        (forall s t, ([⋃ ANF] s -> P s) -> ([⋃ ANF] t -> P t) -> P (s ∪ t)) ->
-        (forall s t, ([⋃ ANF] t -> P t) -> P (s → t)) ->
-        (forall s, [⋃ ANF] s -> P s).
+        (forall α, P (Var α)) ->
+        (forall σ τ, P σ -> P τ -> P (σ ∪ τ)) ->
+        (forall σ τ, P τ -> P (σ → τ)) ->
+        (forall σ, [⋃ ANF] σ -> P σ).
       intros P fV fU fA.
-      refine (fix foo (s : term) := match s with
-                                    | Var a => fun _ => fV a
-                                    | Arrow s t => fun _ => fA _ t (foo t)
-                                    | Union s t => fun _ => fU s t (foo s) (foo t)
-                                    | Inter s t => fun pf => _
-                                    | Omega => fun pf => _
-                                    end).
-      inv pf.
-      inv H.
-      inv pf.
-      inv H.
+      refine (fix foo (σ : term) := match σ with
+                                    | Var α => fun _ => fV α
+                                    | σ → τ => fun pf => fA _ τ (foo τ _)
+                                    | σ ∪ τ => fun pf => fU σ τ (foo σ _) (foo τ _)
+                                    | σ ∩ τ => fun pf => _
+                                    | ω => fun pf => _
+                                    end);
+        solve[inversion pf as [? pf'|]; inversion pf'|
+              auto with SubtypeHints].
     Defined.
-    Print Uanf_ind.
+    Ltac uanf_ind σ :=
+      let foo HH :=
+          repeat match goal with
+                 | H : context[σ] |- _ => lazymatch H with
+                                          | HH => fail
+                                          | _ => revert H
+                                          end
+                 end;
+          revert HH; revert σ;
+          refine (Uanf_ind _ _ _ _); intros
+      in
+      lazymatch goal with
+      | HH : [⋃ ANF] σ |- _ => foo HH
+      | _ =>
+        assert (HH : [⋃ ANF] σ) by (auto with SubtypeHints);
+        foo HH
+      end.
 
-    Lemma idealnoomega : forall σ, ~ ↓[ σ] Omega.
+    Lemma IdealnoOmega : forall σ, ~ ↓[ σ] ω.
     Proof.
-      intros; red.
-      induction σ.
-      intro H; inv H.
-      intro H; inv H.
-      intro H; inv H.
-      intro H; inv H; auto.
-      intro H; inv H.
-      inv H0.
-      inv H.
+      induction σ; intro H; inv H;
+        auto with SubtypeHints.
     Qed.
 
+    Lemma IdealnoOmegaArrow : forall σ, ~ ↓[ σ] ω → ω.
+    Proof.
+      induction σ; intro H; inv H;
+        auto with SubtypeHints;
+        eapply IdealnoOmega; eassumption.
+    Qed.
+
+    Hint Extern 1 =>
+    lazymatch goal with
+    | H : ↓[_] ω |- _ => apply IdealnoOmega in H; exfalso; trivial
+    | H : ↓[_] ω → ω |- _ => apply IdealnoOmegaArrow in H; exfalso; trivial
+    | H : ↓[_] _ ∪ _ |- _ => apply IdealUnion in H; destruct H
+    | H : ↓[_] _ ∩ _ |- _ => apply IdealInter in H; destruct H
+    | H : ↓[_ ∪ _] _ → _ |- _ => inv H
+    | H : ↓[_ → _] _ → _ |- _ => inv H
+    | H : ↓[Var _] _ → _ |- _ => inv H
+    end : SubtypeHints.
+
     Section Ideal_closed.
-      Lemma Ideal_closed : forall σ, [⋃ ANF] σ -> forall τ1 τ2, ↓[σ] τ1 -> τ2 ≤ τ1 -> ↓[σ] τ2.
+      (* This hint is local to the section; and help use the inductive hypotheses *)
+      Hint Extern 1 (↓[?ρ] _) =>
+      (* For an unknown reason, auto fails to use the generated hypothesis; so foo helps it *)
+      let foo σ HHH :=
+          lazymatch ρ with
+          | _ ∪ _ => cast_ideal ρ σ; trivial; apply HHH
+          | ω → _ => apply I_Arrow2; [|apply HHH]
+          | _ → _ => apply I_Arrow1; [| |apply HHH]
+          end
+      in
+      (* The variable τ cannot be infered by auto, so this tactic instantiates it *)
+      lazymatch goal with
+      | H : forall τ, ↓[?σ] τ -> forall τ' : term, τ' ≤ τ -> ↓[?σ] τ', H' : ↓[?σ] ?τ |- _ =>
+      assert (HHH : forall τ' : term, τ' ≤ τ -> ↓[ σ] τ') by (exact (H τ H')); clear H H'; foo σ HHH
+    | H : forall τ, ↓[?σ] τ -> forall τ' : term, τ' ≤ τ -> ↓[?σ] τ', H' : ?τ ≤ ?σ |- _ =>
+      assert (HHH : ↓[ σ] τ) by (refine (H _ (I_Refl _ _) _ H'); trivial); clear H H'; foo σ HHH
+      end.
+
+      Lemma Ideal_closed : forall σ, [⋃ ANF] σ -> forall τ1, ↓[σ] τ1 -> forall τ2, τ2 ≤ τ1 -> ↓[σ] τ2.
       Proof.
-        intro σ.
-        apply (Uanf_ind (fun σ => forall τ1 τ2 : term, ↓[ σ] τ1 -> τ2 ≤ τ1 -> ↓[ σ] τ2)); intros.
-        - induction H0.
-          constructor; trivial.
-          constructor 3; trivial.
-          inv H; trivial.
-          inv H; trivial.
-          inv H; trivial.
-          constructor; trivial.
-          inv H.
-          inv H.
-          inv H.
-          constructor; auto.
-          constructor 3; auto.
-          inv H; constructor; auto.
-          inv H.
-          inv H3.
-          constructor; trivial.
-          inv H4.
-          constructor; trivial.
-          constructor 3; trivial.
-          constructor; trivial.
-          inv H.
-          inv H.
-          inv H.
-          trivial.
-          auto.
-        - induction H2.
-          constructor; trivial.
-          constructor 3; trivial.
-          apply IdealInter in H1.
-          inv H1; trivial.
-          apply IdealInter in H1.
-          inv H1; trivial.
-          eapply Ideal_isDANF; eassumption.
-          eapply Ideal_isDANF; eassumption.
-          eapply Ideal_isDANF; eassumption.
-          apply IdealUnion in H1; inv H1; trivial.
-          eapply Ideal_isDANF; eassumption.
-          constructor 2; trivial.
-          eapply Ideal_isDANF; eassumption.
-          constructor 2; trivial.
-          eapply Ideal_isDANF; eassumption.
-          apply IdealUnion in H1; inv H1; trivial.
-          eapply Ideal_isDANF; eassumption.
-          constructor 2; trivial.
-          eapply Ideal_isDANF; eassumption.
-          constructor 2; trivial.
-          eapply Ideal_isDANF; eassumption.
-          constructor; trivial.
-          + inv H1.
-            constructor 7; trivial.
-            eapply H.
-            eapply Ideal_isDANF; eassumption.
-            eassumption.
-            auto with SubtypeHints.
-            constructor 8; trivial.
-            eapply H0.
-            eapply Ideal_isDANF; eassumption.
-            eassumption.
-            auto with SubtypeHints.
-          + inv H1.
-            constructor 7; trivial.
-            eapply H.
-            eapply Ideal_isDANF; eassumption.
-            eassumption.
-            auto with SubtypeHints.
-            constructor 8; trivial.
-            eapply H0.
-            eapply Ideal_isDANF; eassumption.
-            eassumption.
-            auto with SubtypeHints.
-          + inv H1.
-            constructor; auto.
-            constructor 3; auto.
-            constructor 7; trivial.
-            eapply H.
-            eapply Ideal_isDANF; eassumption.
-            eassumption.
-            auto with SubtypeHints.
-            constructor 8; trivial.
-            eapply H0.
-            eapply Ideal_isDANF; eassumption.
-            eassumption.
-            auto with SubtypeHints.
-          + inv H1.
-            inv H4.
-            inv H1.
-            constructor.
-            apply IHSubtype1.
-            constructor 7. trivial. constructor. trivial.
-            apply IHSubtype2.
-            constructor 8. trivial. constructor. trivial.
-            constructor.
-            apply IHSubtype1; trivial.
-            apply IHSubtype2; trivial.
-            constructor 7; trivial.
-            eapply H.
-            eapply Ideal_isDANF; eassumption.
-            eassumption.
-            auto with SubtypeHints.
-            constructor 8; trivial.
-            eapply H0.
-            eapply Ideal_isDANF; eassumption.
-            eassumption.
-            auto with SubtypeHints.
-          + apply IdealUnion in H1.
-            inv H1.
-            apply IdealInter in H2.
-            inv H2.
-            constructor; trivial.
-            apply IdealInter in H3.
-            inv H3.
-            constructor; trivial.
-            constructor 3; constructor; trivial.
-            eapply Ideal_isDANF; eassumption.
-            eapply Ideal_isDANF; eassumption.
-            eapply Ideal_isDANF; eassumption.
-          + inv H1.
-            constructor; trivial.
-            eapply H.
-            eapply Ideal_isDANF; eassumption.
-            eassumption.
-            auto with SubtypeHints.
-            constructor 8; trivial.
-            eapply H0.
-            eapply Ideal_isDANF; eassumption.
-            eassumption.
-            auto with SubtypeHints.
-          + inv H1.
-            constructor; trivial.
-            eapply H.
-            eapply Ideal_isDANF; eassumption.
-            eassumption.
-            constructor.
-            constructor 8; trivial.
-            eapply H0.
-            eapply Ideal_isDANF; eassumption.
-            eassumption.
-            constructor.
-          + inv H1.
-            constructor; trivial.
-            eapply H.
-            eapply Ideal_isDANF; eassumption.
-            eassumption.
-            constructor.
-            constructor 8; trivial.
-            eapply H0.
-            eapply Ideal_isDANF; eassumption.
-            eassumption.
-            constructor.
-          + trivial.
-          + auto.
-        - induction H1.
-          constructor; trivial.
-          constructor 3; trivial.
-          inv H0; trivial.
-          inv H0; trivial.
-          inv H0; trivial.
-          constructor; trivial.
-          inv H0.
-          inv H3.
-          inv H0.
-          inv H4.
-          inv H0.
-          inv H2.
-          inv H0.
-          apply IdealInter in H7.
-          destruct H7.
-          constructor.
-          constructor; trivial.
-          constructor 3.
-          constructor; trivial.
-          eapply Ideal_isDANF; eassumption.
-          apply IdealInter in H6.
-          destruct H6.
-          constructor.
-          constructor 6; trivial.
-          constructor 3.
-          constructor 6; trivial.
-          eapply Ideal_isDANF; eassumption.
-          inv H0.
-          inv H3.
-          inv H0.
-          inv H3.
-          inv H0.
-          apply FilterUnion in H6.
-          destruct H6.
-          constructor.
-          constructor; trivial.
-          constructor 3.
-          constructor; trivial.
-          apply FilterUnion in H4.
-          destruct H4.
-          constructor.
-          constructor 6; trivial.
-          constructor 3.
-          constructor 6; trivial.
-          apply IdealInter in H0.
-          inv H0.
-          constructor.
-          apply IHSubtype1; trivial.
-          constructor 3.
-          apply IHSubtype2; trivial.
-          eapply Ideal_isDANF; eassumption.
-          apply IdealUnion in H0.
-          destruct H0.
-          constructor; auto.
-          eapply Ideal_isDANF; eassumption.
-          apply IdealUnion in H0.
-          destruct H0.
-          apply IdealInter in H0.
-          destruct H0.
-          constructor; trivial.
-          apply IdealInter in H1.
-          destruct H1.
-          constructor; trivial.
-          constructor 3; constructor; trivial.
-          eapply Ideal_isDANF; eassumption.
-          eapply Ideal_isDANF; eassumption.
-          eapply Ideal_isDANF; eassumption.
-          + inv H0.
-            inv H3.
-            inv H0.
-            constructor; trivial.
-            apply Filter_complete.
-            apply interanf_isFilter; trivial.
-            trivial.
-            eapply H.
-            trivial.
-            apply I_Refl.
-            trivial.
-            trivial.
-            constructor 6.
-            apply Filter_complete.
-            constructor.
-            trivial.
-            eapply H; trivial.
-            apply I_Refl; trivial.
-            trivial.
-            constructor; trivial.
-            eapply Filter_closed.
-            eapply Filter_isFilter; eassumption.
-            eassumption.
-            trivial.
-            eapply H.
-            eapply Ideal_isDANF; eassumption.
-            eassumption.
-            trivial.
-            constructor 6.
-            eapply Filter_closed.
-            eapply Filter_isFilter; eassumption.
-            eassumption.
-            trivial.
-            eapply H.
-            eapply Ideal_isDANF; eassumption.
-            eassumption.
-            trivial.
-          + inv H0.
-          + inv H0.
-            inv H3.
-            inv H0.
-            inv H3.
-            inv H0.
-            inv H2.
-            inv H0.
-            exfalso; apply idealnoomega in H7; trivial.
-            exfalso; apply idealnoomega in H6; trivial.
-          + trivial.
-          + auto.
+        intros until 1; uanf_ind σ;
+          match goal with
+          | H : _ ≤ _ |- _ => induction H; auto 6 with SubtypeHints
+          end.
       Qed.
     End Ideal_closed.
 
@@ -884,90 +709,63 @@ Module Types (VAlpha : VariableAlphabet).
     (* Rewriting functions *)
 
     (* First rewriting function: do Omega-related simplifications *)
-    Fixpoint deleteOmega (σ : term) : term :=
-      match σ with
-      | σ → τ => let σ := deleteOmega σ in
-                 let τ := deleteOmega τ in
-                 match τ with
-                 | Omega => ω
-                 | _ => (σ → τ)
-                 end
-      | σ ∩ τ => let σ := deleteOmega σ in
-                 let τ := deleteOmega τ in
-                 match σ with
-                 | Omega => τ
-                 | _ => match τ with
-                        | Omega => σ
-                        | _ => σ ∩ τ
-                        end
-                 end
-      | σ ∪ τ => let σ := deleteOmega σ in
-                 let τ := deleteOmega τ in
-                 match σ with
-                 | Omega => ω
-                 | _ => match τ with
-                        | Omega => ω
-                        | _ => σ ∪ τ
-                        end
-                 end
-      | _ => σ
-      end.
 
-    Lemma deleteOmega_equiv : forall σ, deleteOmega σ ~= σ.
-    Proof.
-      induction σ as [|σ1 e1 σ2 e2|σ1 e1 σ2 e2|σ1 e1 σ2 e2|];
-        auto with SubtypeHints; simpl;
-          (* Inductive cases *)
-          destruct (deleteOmega σ2), (deleteOmega σ1);
-          rewrite <- e1; rewrite <- e2;
-            auto with SubtypeHints.
-    Qed.
+    Hint Extern 0 =>
+    lazymatch goal with
+    | H : ?σ = ω |- _ => lazymatch σ with
+                         | ω => clear H
+                         | Var _ => discriminate
+                         | _ → _ => discriminate
+                         | _ ∩ _ => discriminate
+                         | _ ∪ _ => discriminate
+                         end
+    | H : Omega_free ω |- _ => inv H
+    end : SubtypeHints.
 
-    Lemma deleteOmega_Omega : forall σ, σ ~= Omega -> deleteOmega σ = Omega.
-    Proof.
-      intros σ [_ H].
-      apply Filter_complete in H; trivial with SubtypeHints.
-      induction σ; inv H; trivial; try contradiction; simpl;
-        (* rewrite the induction hypotheses *)
-        repeat match goal with
-               | IH : ?x -> _, H : ?x |- _ => rewrite IH; trivial; clear H IH
-               end.
-      destruct (deleteOmega _); reflexivity.
-    Qed.
+    Hint Extern 1 (_ ~= _ ) =>
+    repeat lazymatch goal with
+    | H : ?x ~= ω |- context[?x] => rewrite H; clear H
+    | H : ω ~= ?x |- context[?x] => rewrite <- H; clear H
+    | H : ?x ~= _ |- context[?x] => rewrite H; clear H
+    end : SubtypeHints.
 
-    Lemma deleteOmega_free : forall σ, Omega_free σ -> deleteOmega σ = σ.
+    Definition deleteOmega : forall σ : term, {τ | τ ~= σ /\ (Omega_free τ \/ τ = ω)}.
     Proof.
-      intros ? H; induction H as [|σ τ|σ τ|σ|σ τ]; trivial; simpl;
-        repeat match goal with
-               | IH : _ = _ |- _ => rewrite IH; clear IH
-               | H1 : Omega_free σ, H2 : Omega_free τ |- _ => inv H1; inv H2; easy
-               | H1 : Omega_free σ |- _ => inv H1; easy
-               end.
-    Qed.
+      refine(fix deleteOmega (σ : term) :=
+               match σ with
+               | σ → τ => let (σ,pfσ) := deleteOmega σ in
+                          let (τ,pfτ) := deleteOmega τ in
+                          (match τ as x return τ = x -> _ with
+                           | ω => fun _ => exist _ ω _
+                           | _ => fun _ => exist _ (σ → τ) _
+                           end eq_refl)
+               | σ ∩ τ => let (σ,pfσ) := deleteOmega σ in
+                          let (τ,pfτ) := deleteOmega τ in
+                          match σ as x return σ = x -> _ with
+                          | ω => fun _ => exist _ τ _
+                          | _ => fun _ => (match τ as x return τ = x -> _ with
+                                 | ω => fun _ => exist _ σ _
+                                 | _ => fun _ => exist _ (σ ∩ τ) _
+                                 end eq_refl)
+                          end eq_refl
+               | σ ∪ τ => let (σ,pfσ) := deleteOmega σ in
+                          let (τ,pfτ) := deleteOmega τ in
+                          match σ as x return σ = x -> _ with
+                          | ω => fun _ => exist _ ω _
+                          | _ => fun _ => (match τ as x return τ = x -> _ with
+                                           | ω => fun _ => exist _ ω _
+                                           | _ => fun _ => exist _ (σ ∪ τ) _
+                                           end eq_refl)
+                          end eq_refl
+               | Var α => exist _ (Var α) _
+               | ω => exist _ ω _
+               end); clear deleteOmega; subst; simpl in *;
+        time (first[destruct pfσ as [? [|]];
+                    destruct pfτ as [? [|]]; subst; auto 6 with SubtypeHints|
+                    auto with SubtypeHints]).
+    Defined.
 
-    Lemma free_deleteOmega : forall σ, Omega_free (deleteOmega σ) \/ deleteOmega σ = ω.
-    Proof.
-      induction σ as [|σ IH1 τ IH2|σ IH1 τ IH2|σ IH1 τ IH2|]; simpl;
-        [left
-        |inv IH1; inv IH2; [left|right|left |right]
-        |inv IH1; inv IH2; [left|left |left |right]
-        |inv IH2; inv IH1; [left|right|right|right]
-        |right]; auto with SubtypeHints;
-          repeat match goal with
-                 | IH : _ = _ |- _ => rewrite IH; clear IH; trivial
-                 | H1 : Omega_free (deleteOmega σ), H2 : Omega_free (deleteOmega τ) |- _ =>
-                   inv H1; inv H2; now auto with SubtypeHints
-                 | H1 : Omega_free (deleteOmega σ) |- _ => inv H1; now auto with SubtypeHints
-                 | H1 : Omega_free (deleteOmega τ) |- _ => inv H1; now auto with SubtypeHints
-                 end.
-    Qed.
-
-    Lemma deleteOmega_idem : forall σ, deleteOmega (deleteOmega σ) = deleteOmega σ.
-    Proof.
-      intro σ; destruct (free_deleteOmega σ) as [? | H].
-      rewrite (deleteOmega_free); trivial.
-      rewrite H; trivial.
-    Qed.
+    Definition distrArrow : forall (σ τ : term), {σ' |  }
 
     Fixpoint Arrow_DistrRight (σ τ : term) : term :=
       match τ with
