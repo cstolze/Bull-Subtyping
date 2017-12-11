@@ -1,6 +1,6 @@
-BCD.hs
-BCD.ml
-BCD.mli
+BDdL.hs
+BDdL.ml
+BDdL.mli
 Makefile.conf
 
 # Created by https://www.gitignore.io/api/ocaml,haskell,vim,emacs,coq

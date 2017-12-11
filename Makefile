@@ -10,21 +10,21 @@ world: all
 coq:
 	$(MAKE) -C coq all
 
-coq/BCD.hs: coq
-coq/BCD.ml: coq
-coq/BCD.mli: coq
+coq/BDdL.hs: coq
+coq/BDdL.ml: coq
+coq/BDdL.mli: coq
 
-haskell/src/BCD.hs: coq/BCD.hs
-	cp coq/BCD.hs haskell/src/
+haskell/src/BDdL.hs: coq/BDdL.hs
+	sed -e s/_UU03c3_/s/g -e s/_UU03c4_/t/g -e s/_UU03b1_/a/g -e s/_UU03b2_/b/g coq/BDdL.hs > haskell/src/BDdL.hs
 
 .PHONY: haskell
-haskell: haskell/src/BCD.hs
+haskell: haskell/src/BDdL.hs
 	$(MAKE) -C haskell all
 
-ocaml/src/extracted/BCD.ml: coq/BCD.ml coq/BCD.mli
-	test -d ocaml/src/extracted/ || mkdir -p ocaml/src/extracted/ && cp coq/BCD.ml coq/BCD.mli ocaml/src/extracted/
+ocaml/src/extracted/BDdL.ml: coq/BDdL.ml coq/BDdL.mli
+	test -d ocaml/src/extracted/ || mkdir -p ocaml/src/extracted/ && sed -e s/_UU03c3_/s/g -e s/_UU03c4_/t/g -e s/_UU03b1_/a/g -e s/_UU03b2_/b/g coq/BDdL.ml > ocaml/src/extracted/BDdL.ml && cp coq/BDdL.mli ocaml/src/extracted/
 
-ocaml/Makefile: ocaml/src/extracted/BCD.ml
+ocaml/Makefile: ocaml/src/extracted/BDdL.ml
 	cd ocaml && $(OASIS) setup -setup-update dynamic
 
 .PHONY: ocaml
