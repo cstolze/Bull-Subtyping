@@ -1,7 +1,5 @@
 -R . BCD
 ./Filter.v
-./Filter2.v
-./.#Filter2.v
 ./ExtractOcaml.v
 ./PreOrderTactic.v
 ./ExtractHaskell.v

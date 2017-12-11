@@ -1,30 +1,16 @@
 Require Import Filter.
-Require Import Coq.Structures.Equalities.
 Require Extraction.
 
-Module HSTy.
-  Module MachineIntVar <: VariableAlphabet.
-    Axiom t : Set.
-    Axiom eq_dec: forall α β : t, { α = β } + { ~ (α = β) }.
+Module BCD := VariableAlphabet <+ Types.
 
-    Include HasUsualEq.
-    Include UsualIsEq.
-    Extract Inductive nat => "Prelude.Int" [ "0" "Prelude.succ" ] "(\ fO fS n -> if n == 0 then fO () else fS (n - 1))".
-    Extract Constant plus => "(Prelude.+)".
-    Extract Inductive prod => "(,)" [ "(,)" ].
-    Extract Constant fst => "Prelude.fst".
-    Extract Constant snd => "Prelude.snd".
-
-    Extract Inductive bool => "Prelude.Bool" [ "Prelude.True" "Prelude.False" ].
-    Extract Inductive sumbool => "Prelude.Bool" [ "Prelude.True" "Prelude.False" ].
-
-    Extract Constant t => "Prelude.Int".
-    Extract Constant eq_dec => "(Prelude.==)".
-  End MachineIntVar.
-
-  Module T := MachineIntVar <+ Types.
-  Include T.
-End HSTy.
+Extract Inductive prod => "(,)" [ "(,)" ].
+Extract Constant fst => "Prelude.fst".
+Extract Constant snd => "Prelude.snd".
+Extract Inductive sumbool => "Prelude.Bool" [ "Prelude.True" "Prelude.False" ].
+Extract Inductive sig => "'a" [ "" ].
+Extract Constant BCD.t => "Prelude.Int".
+Extract Constant BCD.eq_dec => "(Prelude.==)".
+Extraction Inline BCD.eq_dec.
 
 Extraction Language Haskell.
-Extraction "BCD.hs" HSTy.
+Extraction "BCD.hs" BCD.SubtypeRelation.
