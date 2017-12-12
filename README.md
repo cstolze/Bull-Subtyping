@@ -1,8 +1,10 @@
 # Presentation
 
 This project implements a subtyping algorithm for a type system with a universal type (called Omega), and three type connectives: Arrow, Union, and Intersection.
-The subtyping algorithm is formally proven in Coq and extracted to an ocaml (an a haskell) file.
-The subtyping rules are taken from the Barbanera-Dezani-de'Liguoro paper called "Intersection and union types: syntax and semantics", and are formalised by the Subtype type in `coq/Filter.v`, which also formalise everything else.
+
+The subtyping algorithm is formally proven in Coq and extracted to an ocaml (and a haskell) file.
+
+The subtyping rules are taken from the Barbanera-Dezani-de'Liguoro paper called "Intersection and union types: syntax and semantics", and are formalized by the Subtype type in `coq/Filter.v`, which also formalize everything else.
 
 # Dependencies
 You need Coq version 8.7.0, and a decent version of OCaml.
