@@ -98,4 +98,5 @@ tramp
 *.vo
 *.glob
 *.v.d
+coq/Makefile
 

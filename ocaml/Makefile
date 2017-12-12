@@ -1,45 +1,15 @@
-# OASIS_START
-# DO NOT EDIT (digest: a3c674b4239234cbbe53afe090018954)
+.PHONY: all clean byte native profile debug test
 
-SETUP = ocaml setup.ml
+OCB_FLAGS = -I src/interface/ -I src/extracted/
+OCB = ocamlbuild $(OCB_FLAGS)
 
-build: setup.data
-	$(SETUP) -build $(BUILDFLAGS)
-
-doc: setup.data build
-	$(SETUP) -doc $(DOCFLAGS)
-
-test: setup.data build
-	$(SETUP) -test $(TESTFLAGS)
-
-all:
-	$(SETUP) -all $(ALLFLAGS)
-
-install: setup.data
-	$(SETUP) -install $(INSTALLFLAGS)
-
-uninstall: setup.data
-	$(SETUP) -uninstall $(UNINSTALLFLAGS)
-
-reinstall: setup.data
-	$(SETUP) -reinstall $(REINSTALLFLAGS)
+all: native byte
 
 clean:
-	$(SETUP) -clean $(CLEANFLAGS)
+	$(OCB) -clean
 
-distclean:
-	$(SETUP) -distclean $(DISTCLEANFLAGS)
+native:
+	$(OCB) prototype.native
 
-setup.data:
-	$(SETUP) -configure $(CONFIGUREFLAGS)
-
-configure:
-	$(SETUP) -configure $(CONFIGUREFLAGS)
-
-.PHONY: build doc test all install uninstall reinstall clean distclean configure
-
-# OASIS_STOP
-
-.PHONY: mrproper
-mrproper: clean
-	rm -f src/extracted/*
+byte:
+	$(OCB) prototype.byte
