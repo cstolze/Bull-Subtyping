@@ -1026,3 +1026,38 @@ Module Types (𝕍 : VariableAlphabet).
     Defined.
   End SubtypeRelation.
 End Types.
+
+(* Module nat_var <: VariableAlphabet. *)
+(*   Definition t := nat. *)
+(*   Definition eq := @eq nat. *)
+(*   Definition eq_equiv : Equivalence eq. *)
+(*   Proof. *)
+(*     constructor. *)
+(*     constructor. *)
+(*     red. *)
+(*     intros. *)
+(*     now symmetry. *)
+(*     red. *)
+(*     intros; etransitivity; eauto. *)
+(*   Defined. *)
+
+(*   Definition eq_dec : ∀ x y : t, {x = y} + {x ≠ y}. *)
+(*     decide equality. *)
+(*   Defined. *)
+(* End nat_var. *)
+
+(* Module foo := nat_var <+ Types. *)
+
+(* Import foo. *)
+(* Definition is_subtype := SubtypeRelation.decide_subtype. *)
+
+(* Definition s1 := Var 0. *)
+(* Definition s2 := Var 1. *)
+(* Definition t1 := Var 2. *)
+(* Definition t2 := Var 3. *)
+
+(* Definition type_1 := (t1 ⟶ s1) ∩ (t2 ⟶ s2). *)
+(* Definition type_2 := (t1 ∪ t2) ⟶ (s1 ∩ s2). *)
+
+(* Eval hnf in (is_subtype type_1 type_2). (* explodes my computer *) *)
+(* Eval hnf in (is_subtype type_2 type_1). (* explodes my computer *) *)

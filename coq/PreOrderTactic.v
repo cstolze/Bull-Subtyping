@@ -79,7 +79,7 @@ Qed.
 Definition formula (n : nat) : Set := (list (index n * index n)) * (index n * index n).
 
 (* Heuristic type for heuristic functions: give a proof (Yes) or don't (No) *)
-Inductive partial {A : Prop} :=
+Inductive partial {A : Prop} : Set :=
 | Yes : A -> partial
 | No : partial.
 Local Notation "[ A ]" := (@partial A).

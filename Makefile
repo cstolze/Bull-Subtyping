@@ -9,6 +9,7 @@ world: all
 
 coq/Makefile:
 	cd coq && coq_makefile -f _CoqProject -o Makefile
+	mv coq/BDdL.ml ocaml/src/interface
 
 coq: coq/Makefile
 	$(MAKE) -C coq all

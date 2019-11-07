@@ -12,5 +12,5 @@ Extract Constant BDdL.t => "int".
 Extract Constant BDdL.eq_dec => "(fun x y -> x = y)".
 Extraction Inline BDdL.eq_dec.
 
-Extraction Language Ocaml.
+Extraction Language OCaml.
 Extraction "BDdL.ml" BDdL.SubtypeRelation.
